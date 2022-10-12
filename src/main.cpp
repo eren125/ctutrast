@@ -1,5 +1,5 @@
 #include <local/forcefield.hpp> // define forcefield parameters
-#include <local/supracell.hpp> // define supracell size
+#include <local/boxsetting.hpp> // set rectangular shaped box using periodic boundary conditions
 
 #include <chrono>
 
@@ -70,13 +70,17 @@ int main(int argc, char* argv[]) {
   vector<gemmi::SmallStructure::Site> unique_sites = structure.sites;
   vector<gemmi::SmallStructure::Site> all_sites = structure.get_all_unit_cell_sites();
 
-  // supercell size
-  int n_max=0;int l_max=0; int m_max=0;
-  set_supracell(&n_max, &m_max, &l_max, structure, cutoff);
+  // Cell vector
+  double a_x = structure.cell.orth.mat[0][0]; double b_x = structure.cell.orth.mat[0][1]; double c_x = structure.cell.orth.mat[0][2];
+  double b_y = structure.cell.orth.mat[1][1]; double c_y = structure.cell.orth.mat[1][2];
+  double c_z = structure.cell.orth.mat[2][2];
+  // Minimal rectangular box that could interact with atoms within the smaller equivalent rectangluar box
+  int n_max = int(abs((cutoff + sigma) / a_x)) + 1; 
+  int m_max = int(abs((cutoff + sigma) / b_y)) + 1; 
+  int l_max = int(abs((cutoff + sigma) / c_z)) + 1; 
 
   // Creates a list of sites within the cutoff
   vector<array<double,6>> supracell_sites;
-  gemmi::Fractional coord_temp;
   string element_host_str_temp = "X";
 
   for (auto site: all_sites) {
@@ -88,16 +92,18 @@ int main(int argc, char* argv[]) {
       sigma = 0.5 * ( epsilon_sigma.second+sigma_guest );
     }
     element_host_str_temp = element_host_str;
-    gemmi::Fractional coord = site.fract;
+    gemmi::Fractional coord;
+    // neighbor list within rectangular box
+    move_rect_box(site.fract,a_x,b_x,c_x,b_y,c_y);
     for (int n = -n_max; (n<n_max+1); ++n){
       for (int m = -m_max; (m<m_max+1); ++m) {
         for (int l = -l_max; (l<l_max+1); ++l) {
           // calculate a distance from centre box
           array<double,6> pos_epsilon_sigma;
-          coord_temp.x = coord.x + n;
-          coord_temp.y = coord.y + m;
-          coord_temp.z = coord.z + l;
-          gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(coord_temp));
+          coord.x = site.fract.x + n;
+          coord.y = site.fract.y + m;
+          coord.z = site.fract.z + l;
+          gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(coord));
           pos_epsilon_sigma[0] = pos.x;
           pos_epsilon_sigma[1] = pos.y;
           pos_epsilon_sigma[2] = pos.z;
@@ -129,6 +135,7 @@ int main(int argc, char* argv[]) {
         assert(idx == grid.index_q(u, v, w));
         if (visited[idx])
           continue;
+        // Need to put into rect box
         
 // HERE
 
