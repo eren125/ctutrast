@@ -10,7 +10,6 @@
 #include <gemmi/grid.hpp>
 #include <unordered_map>
 
-
 // Set key constants
 #define R 8.31446261815324e-3 // kJ/mol/K
 #define sqrt_2 1.414213562373095
@@ -115,7 +114,6 @@ int main(int argc, char* argv[]) {
       }
     }
   }
-
   // Grid set-up
   gemmi::Grid<double> grid;
   bool denser = true; double approx_spacing = 0.12;
@@ -136,7 +134,7 @@ int main(int argc, char* argv[]) {
         if (visited[idx])
           continue;
         // Need to put into rect box
-        
+
 // HERE
 
         for (size_t k = 0; k < ops.size(); ++k) {
