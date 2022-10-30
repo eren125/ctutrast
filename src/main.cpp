@@ -168,8 +168,10 @@ int main(int argc, char* argv[]) {
           for(array<double,6> pos_epsilon_sigma : supracell_sites) {
             double energy_temp = 0;
             gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
-            gemmi::Vec3 V = grid.point_to_position(grid.get_point(t[0], t[1], t[2]));
-            distance_sq = V.dist_sq(pos_neigh);
+            gemmi::Fractional V_fract = grid.point_to_fractional(grid.get_point(t[0], t[1], t[2]));
+            // make it quicker using if
+            move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
+            distance_sq = gemmi::Position(structure.cell.orthogonalize(V_fract)).dist_sq(pos_neigh);
             if (distance_sq < cutoff_sq) {
               sigma_sq = pos_epsilon_sigma[4];
               epsilon = pos_epsilon_sigma[3];
