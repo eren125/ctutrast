@@ -39,22 +39,16 @@ int main(int argc, char* argv[]) {
   double threshold_en = 40;
   if (argv[7]) {threshold_en = stod(argv[7]);}
 
-    // Inialize key variables
-  string element_host_str;
-  double dist = 0;
-  double distance_sq = 0;
-  double epsilon = 0;
-  double sigma = 0;
-  double sigma_sq = 0;
-  double sigma_6 = 0;
-  double exp_energy = 0;
+  // Inialize key variables
+  double mass = 0;
+  double boltzmann_energy_lj = 0;
+  double sum_exp_energy = 0;
 
   // Read Forcefield Infos
   LennardJones::Parameters ff_params;
   if (forcefield_path != "DEFAULT") {
     ff_params.read_lj_from_raspa(forcefield_path);
   }
-
   pair<double,double> epsilon_sigma = ff_params.get_epsilon_sigma(element_guest_str, true);
   double epsilon_guest = epsilon_sigma.first;
   double sigma_guest = epsilon_sigma.second;
@@ -80,9 +74,9 @@ int main(int argc, char* argv[]) {
   double b_y = structure.cell.orth.mat[1][1]; double c_y = structure.cell.orth.mat[1][2];
   double c_z = structure.cell.orth.mat[2][2];
   // Minimal rectangular box that could interact with atoms within the smaller equivalent rectangluar box
-  int n_max = int(abs((cutoff + sigma) / a_x)) + 1; 
-  int m_max = int(abs((cutoff + sigma) / b_y)) + 1; 
-  int l_max = int(abs((cutoff + sigma) / c_z)) + 1; 
+  int n_max = int(abs((cutoff + sigma_guest) / a_x)) + 1; 
+  int m_max = int(abs((cutoff + sigma_guest) / b_y)) + 1; 
+  int l_max = int(abs((cutoff + sigma_guest) / c_z)) + 1; 
 
   // Grid set-up
   gemmi::Grid<double> grid;
@@ -91,10 +85,16 @@ int main(int argc, char* argv[]) {
   grid.set_unit_cell(structure.cell);
   grid.set_size_from_spacing(approx_spacing, denser);
 
+
+  // Auxiliary variables
+  string element_host_str;
+  double dist = 0; double distance_sq = 0;
+  double epsilon = 0;
+  double sigma = 0; double sigma_sq = 0; double sigma_6 = 0;
+
   // center position used to reduce the neighbor list
   gemmi::Position center_pos = gemmi::Position(a_x/2,b_y/2,c_z/2);
   double large_cutoff = cutoff + center_pos.length();
-  double mass = 0;
 
   // Creates a list of sites within the cutoff
   vector<array<double,6>> supracell_sites;
@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
 
-    // TODO block values on the atoms using sigma
+    // Neighbor list construction + quick calculation in the occupied space
     grid.use_points_around(site.fract, sigma, [&](double& ref, double d2){ 
       double inv_distance_6 = 1.0 / (d2*d2*d2);
       double inv_distance_12 = inv_distance_6 * inv_distance_6;
@@ -129,9 +129,7 @@ int main(int argc, char* argv[]) {
         for (int l = -l_max; (l<l_max+1); ++l) {
           // calculate a distance from centre box
           array<double,6> pos_epsilon_sigma;
-          coord.x = site.fract.x + n;
-          coord.y = site.fract.y + m;
-          coord.z = site.fract.z + l;
+          coord.x = site.fract.x + n; coord.y = site.fract.y + m; coord.z = site.fract.z + l;
           gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(coord));
           double delta_x = abs(center_pos.x-pos.x);
           if (delta_x > large_cutoff) {continue;}
@@ -150,14 +148,8 @@ int main(int argc, char* argv[]) {
           supracell_sites.push_back(pos_epsilon_sigma);
         }
   }
-  // cout << supracell_sites.size() << endl;
-
-  double boltzmann_energy_lj = 0;
-  double sum_exp_energy = 0;
 
   // Symmetry-aware grid construction
-  double min=40;
-  int count=0;
   vector<gemmi::GridOp> ops = grid.get_scaled_ops_except_id();
   size_t idx = 0;
   for (int w = 0; w != grid.nw; ++w)
@@ -165,8 +157,6 @@ int main(int argc, char* argv[]) {
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         double value = grid.data[idx];
         if (value!=0.0) {
-          count++;
-          if ((value>0)&(value<min)) {min=value;}
           continue;
         }
         // symmetry
@@ -190,7 +180,7 @@ int main(int argc, char* argv[]) {
             }
           }
           grid.data[mates_idx] = energy;
-          double exp_energy = exp(-energy/(R*temperature)); 
+          double exp_energy = exp(-energy/(R*temperature));
           sum_exp_energy += exp_energy;
           boltzmann_energy_lj += exp_energy*energy;
           // cout << energy << endl;
@@ -208,6 +198,7 @@ int main(int argc, char* argv[]) {
   // visualisation using python
 
   // TODO Need to put into rect box
+  // TODO Issue with P1 structures ops does not exist.
 
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
