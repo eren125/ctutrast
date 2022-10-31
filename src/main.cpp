@@ -85,7 +85,6 @@ int main(int argc, char* argv[]) {
   grid.set_unit_cell(structure.cell);
   grid.set_size_from_spacing(approx_spacing, denser);
 
-
   // Auxiliary variables
   string element_host_str;
   double dist = 0; double distance_sq = 0;
@@ -95,7 +94,6 @@ int main(int argc, char* argv[]) {
   // center position used to reduce the neighbor list
   gemmi::Position center_pos = gemmi::Position(a_x/2,b_y/2,c_z/2);
   double large_cutoff = cutoff + center_pos.length();
-
   // Creates a list of sites within the cutoff
   vector<array<double,6>> supracell_sites;
   string element_host_str_temp = "X";
@@ -110,15 +108,12 @@ int main(int argc, char* argv[]) {
     element_host_str_temp = element_host_str;
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
-
-    // Neighbor list construction + quick calculation in the occupied space
+    // Quick calculation in the occupied space
     grid.use_points_around(site.fract, sigma, [&](double& ref, double d2){ 
       double inv_distance_6 = 1.0 / (d2*d2*d2);
       double inv_distance_12 = inv_distance_6 * inv_distance_6;
-      ref += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12);
-      if (ref<threshold_en) {ref=0.0;}
-      }
-      ,false);
+      ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12);
+      if (ref<threshold_en) {ref=0.0;} },false);
     gemmi::Element el(element_host_str.c_str());
     mass += el.weight();
     // neighbor list within rectangular box
@@ -150,44 +145,47 @@ int main(int argc, char* argv[]) {
   }
 
   // Symmetry-aware grid construction
-  vector<gemmi::GridOp> ops = grid.get_scaled_ops_except_id();
+  vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
+
   size_t idx = 0;
   for (int w = 0; w != grid.nw; ++w)
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         double value = grid.data[idx];
-        if (value!=0.0) {
+        if (value!=0.0)
           continue;
-        }
-        // symmetry
-        for (size_t k = 0; k < ops.size(); ++k) {
-          std::array<int,3> t = ops[k].apply(u, v, w);
-          size_t mates_idx = grid.index_n(t[0], t[1], t[2]);
-          // calculate energy from neighbor list
-          double energy = 0;
-          for(array<double,6> pos_epsilon_sigma : supracell_sites) {
-            double energy_temp = 0;
-            gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
-            gemmi::Fractional V_fract = grid.point_to_fractional(grid.get_point(t[0], t[1], t[2]));
-            // make it quicker using if
-            move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
-            distance_sq = gemmi::Position(structure.cell.orthogonalize(V_fract)).dist_sq(pos_neigh);
-            if (distance_sq < cutoff_sq) {
-              sigma_sq = pos_epsilon_sigma[4];
-              epsilon = pos_epsilon_sigma[3];
-              sigma_6 = pos_epsilon_sigma[5];
-              double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
-              double inv_distance_12 = inv_distance_6 * inv_distance_6;
-              energy += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12);
-            }
+        gemmi::Fractional V_fract = grid.point_to_fractional({u,v,w,&value});
+        move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);// TODO make it quicker using -1 +1 instead of modulo
+        gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(V_fract));
+        double energy = 0;
+        for(array<double,6> pos_epsilon_sigma : supracell_sites) {
+          double energy_temp = 0;
+          gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
+          distance_sq = pos.dist_sq(pos_neigh);
+          if (distance_sq < cutoff_sq) {
+            sigma_sq = pos_epsilon_sigma[4];
+            epsilon = pos_epsilon_sigma[3];
+            sigma_6 = pos_epsilon_sigma[5];
+            double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
+            double inv_distance_12 = inv_distance_6 * inv_distance_6;
+            energy += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12);
           }
-          grid.data[mates_idx] = energy;
-          double exp_energy = exp(-energy/(R*temperature));
-          sum_exp_energy += exp_energy;
-          boltzmann_energy_lj += exp_energy*energy;
-          // cout << energy << endl;
         }
-  }
+        grid.data[idx] = energy;
+        // symmetry
+        int sym_count = 1;
+        for (size_t k = 0; k < grid_ops.size(); ++k) {
+          array<int,3> t = grid_ops[k].apply(u, v, w);
+          size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
+          if (grid.data[mate_idx]!=0.0)
+            continue;
+          sym_count++;
+          grid.data[mate_idx] = energy;
+        }
+        double exp_energy = exp(-energy/(R*temperature));
+        sum_exp_energy += exp_energy;
+        boltzmann_energy_lj += exp_energy * energy;
+      }
   // cout << count << endl;
   double Framework_density = 1e-3 * mass/(N_A*structure.cell.volume*1e-30); // kg/m3
   double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
