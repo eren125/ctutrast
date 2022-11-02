@@ -8,7 +8,6 @@
 #include <gemmi/symmetry.hpp>   // Space Group manipulation
 #include <gemmi/unitcell.hpp>
 #include <gemmi/grid.hpp>
-#include <gemmi/ccp4.hpp>
 
 // Set key constants
 #define R 8.31446261815324e-3 // kJ/mol/K
@@ -20,20 +19,11 @@ double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double i
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
 }
 
-string generate_ccp4name(string structure_file, double spacing, double energy_threshold) {
-  char buffer[20];  // maximum expected length of the float
+string trim(string structure_file) {
   string structure_name(structure_file);
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
   string::size_type const p(structure_name.find_last_of('.'));
   structure_name = structure_name.substr(0, p);
-  structure_name = "grid/" + structure_name;
-  structure_name += "_";
-  snprintf(buffer, 20, "%g", spacing);
-  structure_name += buffer;
-  structure_name += "_";
-  snprintf(buffer, 20, "%g", energy_threshold);
-  structure_name += buffer;
-  structure_name += ".ccp4";
   return structure_name;
 }
 
@@ -53,8 +43,13 @@ int main(int argc, char* argv[]) {
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   string element_guest_str = argv[5];
   double approx_spacing = stod(argv[6]);
-  double energy_threshold = 40;
-  if (argv[7]) {energy_threshold = stod(argv[7]);}
+  double access_coeff = 0.85;
+  if (argv[7]) {access_coeff = stod(argv[7]);}
+
+  // Inialize key variables
+  double mass = 0;
+  double boltzmann_energy_lj = 0;
+  double sum_exp_energy = 0;
 
   // Read Forcefield Infos
   LennardJones::Parameters ff_params;
@@ -99,6 +94,7 @@ int main(int argc, char* argv[]) {
 
   // Auxiliary variables
   string element_host_str;
+  double dist = 0; double distance_sq = 0;
   double epsilon = 0;
   double sigma = 0; double sigma_sq = 0; double sigma_6 = 0;
 
@@ -120,11 +116,9 @@ int main(int argc, char* argv[]) {
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
     // Quick calculation in the occupied space
-    grid.use_points_around(site.fract, sigma, [&](double& ref, double d2){ 
-      double inv_distance_6 = 1.0 / (d2*d2*d2);
-      double inv_distance_12 = inv_distance_6 * inv_distance_6;
-      ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12);
-      if (ref < energy_threshold){ref = 0;}}, false); // all neglected in the enthalpy calc
+    grid.use_points_around(site.fract, access_coeff*sigma, [&](double& ref, double d2){ref = 1;}, false);
+    gemmi::Element el(element_host_str.c_str());
+    mass += el.weight();
     // neighbor list within rectangular box
     move_rect_box(site.fract,a_x,b_x,c_x,b_y,c_y);
     gemmi::Fractional coord;
@@ -141,7 +135,7 @@ int main(int argc, char* argv[]) {
           if (delta_y > large_cutoff) {continue;}
           double delta_z = abs(center_pos.z-pos.z);
           if (delta_z > large_cutoff) {continue;}
-          double distance_sq = delta_x*delta_x+delta_y*delta_y+delta_z*delta_z;
+          distance_sq = delta_x*delta_x+delta_y*delta_y+delta_z*delta_z;
           if (distance_sq > large_cutoff*large_cutoff) {continue;}
           pos_epsilon_sigma[0] = pos.x;
           pos_epsilon_sigma[1] = pos.y;
@@ -169,7 +163,7 @@ int main(int argc, char* argv[]) {
         for(array<double,6> pos_epsilon_sigma : supracell_sites) {
           double energy_temp = 0;
           gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
-          double distance_sq = pos.dist_sq(pos_neigh);
+          distance_sq = pos.dist_sq(pos_neigh);
           if (distance_sq < cutoff_sq) {
             sigma_sq = pos_epsilon_sigma[4];
             epsilon = pos_epsilon_sigma[3];
@@ -190,17 +184,17 @@ int main(int argc, char* argv[]) {
           sym_count++;
           grid.data[mate_idx] = energy;
         }
+        double exp_energy = exp(-energy/(R*temperature));
+        sum_exp_energy += sym_count * exp_energy;
+        boltzmann_energy_lj += sym_count * exp_energy * energy;
       }
 
-  // Save grid in ccp4 binary format
-  gemmi::Ccp4<double> map;
-  map.grid = grid;
-  map.setup(gemmi::GridSetup::Full, NAN);
-  map.update_ccp4_header(2, true);
-  string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
-  map.write_ccp4_map(filename);
-  // map.read_ccp4("my_map.ccp4");
-
-  // visualisation using python
-
+  string structure_name = trim(structure_file);
+  double Framework_density = mass/(N_A*structure.cell.volume*1e-30); // g/m3
+  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
+  double henry_surface = sum_exp_energy/(R*temperature)/(grid.data.size())/Framework_density;    // mol/kg/Pa
+  chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
+  double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
+  // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
+  cout << structure_name << "," << enthalpy_surface << "," << henry_surface << "," << elapsed_time_ms*0.001 << endl;
 }
