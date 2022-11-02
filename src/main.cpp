@@ -20,6 +20,14 @@ double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double i
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
 }
 
+string trim(string structure_file) {
+  string structure_name;
+  structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
+  string::size_type const p(structure_name.find_last_of('.'));
+  structure_name = structure_name.substr(0, p);
+  return structure_name;
+}
+
 using namespace std;
 namespace cif = gemmi::cif;
 
@@ -190,7 +198,7 @@ int main(int argc, char* argv[]) {
   double Framework_density = 1e-3 * mass/(N_A*structure.cell.volume*1e-30); // kg/m3
   double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
   double henry_surface = 1e-3*sum_exp_energy/(R*temperature)/(grid.data.size())/Framework_density;    // mol/kg/Pa
-
+  string structure_name = trim(structure_file);
 
 // HERE
 
@@ -202,5 +210,6 @@ int main(int argc, char* argv[]) {
 
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-  cout << enthalpy_surface << ',' <<  henry_surface << ',' << elapsed_time_ms*0.001 << endl;
+  // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
+  cout << structure_name << "," << enthalpy_surface << "," << henry_surface << "," << elapsed_time_ms*0.001 << endl;
 }
