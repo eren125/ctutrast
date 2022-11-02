@@ -193,17 +193,13 @@ int main(int argc, char* argv[]) {
         sum_exp_energy += sym_count * exp_energy;
         boltzmann_energy_lj += sym_count * exp_energy * energy;
       }
-  // cout << count << endl;
-  double Framework_density = 1e-3 * mass/(N_A*structure.cell.volume*1e-30); // kg/m3
-  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-  double henry_surface = 1e-3*sum_exp_energy/(R*temperature)/(grid.data.size())/Framework_density;    // mol/kg/Pa
-  string structure_name = trim(structure_file);
 
 // HERE
 
   // Save grid in ccp4 binary format
   // visualisation using python
 
+  string structure_name = trim(structure_file);
   double Framework_density = mass/(N_A*structure.cell.volume*1e-30); // g/m3
   double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
   double henry_surface = sum_exp_energy/(R*temperature)/(grid.data.size())/Framework_density;    // mol/kg/Pa
