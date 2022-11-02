@@ -154,7 +154,6 @@ int main(int argc, char* argv[]) {
 
   // Symmetry-aware grid construction
   vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
-
   size_t idx = 0;
   for (int w = 0; w != grid.nw; ++w)
     for (int v = 0; v != grid.nv; ++v)
@@ -163,7 +162,7 @@ int main(int argc, char* argv[]) {
         if (value!=0.0)
           continue;
         gemmi::Fractional V_fract = grid.point_to_fractional({u,v,w,&value});
-        move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);// TODO make it quicker using -1 +1 instead of modulo
+        move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
         gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(V_fract));
         double energy = 0;
         for(array<double,6> pos_epsilon_sigma : supracell_sites) {
@@ -191,8 +190,8 @@ int main(int argc, char* argv[]) {
           grid.data[mate_idx] = energy;
         }
         double exp_energy = exp(-energy/(R*temperature));
-        sum_exp_energy += exp_energy;
-        boltzmann_energy_lj += exp_energy * energy;
+        sum_exp_energy += sym_count * exp_energy;
+        boltzmann_energy_lj += sym_count * exp_energy * energy;
       }
   // cout << count << endl;
   double Framework_density = 1e-3 * mass/(N_A*structure.cell.volume*1e-30); // kg/m3
@@ -205,9 +204,9 @@ int main(int argc, char* argv[]) {
   // Save grid in ccp4 binary format
   // visualisation using python
 
-  // TODO Need to put into rect box
-  // TODO Issue with P1 structures ops does not exist.
-
+  double Framework_density = mass/(N_A*structure.cell.volume*1e-30); // g/m3
+  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
+  double henry_surface = sum_exp_energy/(R*temperature)/(grid.data.size())/Framework_density;    // mol/kg/Pa
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
   // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
