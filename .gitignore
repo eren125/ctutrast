@@ -3,3 +3,6 @@ a.out
 log
 run
 KAXQIL_clean.vol
+structure/*
+grid/*
+!grid/KAXQIL_clean_14_0.1_10.ccp4
