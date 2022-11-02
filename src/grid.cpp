@@ -21,7 +21,7 @@ double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double i
 }
 
 string trim(string structure_file) {
-  string structure_name;
+  string structure_name(structure_file);
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
   string::size_type const p(structure_name.find_last_of('.'));
   structure_name = structure_name.substr(0, p);
@@ -44,8 +44,11 @@ int main(int argc, char* argv[]) {
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   string element_guest_str = argv[5];
   double approx_spacing = stod(argv[6]);
-  double threshold_en = 40;
-  if (argv[7]) {threshold_en = stod(argv[7]);}
+  double threshold_enj = 40;
+  if (argv[7]) {threshold_enj = stod(argv[7]);}
+
+  // negligible exponential term
+  double threshold_exp = 50*R*temperature; // exp(-50)=2E-22 is considered negligible (hard coded)
 
   // Inialize key variables
   double mass = 0;
@@ -121,7 +124,11 @@ int main(int argc, char* argv[]) {
       double inv_distance_6 = 1.0 / (d2*d2*d2);
       double inv_distance_12 = inv_distance_6 * inv_distance_6;
       ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12);
-      if (ref<threshold_en) {ref=0.0;} },false);
+      if (ref < threshold_enj){ref = 0;}
+      else if (ref < threshold_exp) { 
+        double exp_energy = exp(-ref/(R*temperature));
+        sum_exp_energy += exp_energy;
+        boltzmann_energy_lj += exp_energy * ref;} }, false);
     gemmi::Element el(element_host_str.c_str());
     mass += el.weight();
     // neighbor list within rectangular box
