@@ -47,9 +47,6 @@ int main(int argc, char* argv[]) {
   double threshold_enj = 40;
   if (argv[7]) {threshold_enj = stod(argv[7]);}
 
-  // negligible exponential term
-  double threshold_exp = 50*R*temperature; // exp(-50)=2E-22 is considered negligible (hard coded)
-
   // Inialize key variables
   double mass = 0;
   double boltzmann_energy_lj = 0;
@@ -124,11 +121,7 @@ int main(int argc, char* argv[]) {
       double inv_distance_6 = 1.0 / (d2*d2*d2);
       double inv_distance_12 = inv_distance_6 * inv_distance_6;
       ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12);
-      if (ref < threshold_enj){ref = 0;}
-      else if (ref < threshold_exp) { 
-        double exp_energy = exp(-ref/(R*temperature));
-        sum_exp_energy += exp_energy;
-        boltzmann_energy_lj += exp_energy * ref;} }, false);
+      if (ref < threshold_enj){ref = 0;}}, false); // all neglected in the enthalpy calc
     gemmi::Element el(element_host_str.c_str());
     mass += el.weight();
     // neighbor list within rectangular box
