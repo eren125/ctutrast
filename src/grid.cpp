@@ -199,4 +199,8 @@ int main(int argc, char* argv[]) {
   map.update_ccp4_header(2, true);
   string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
   map.write_ccp4_map(filename);
+  chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
+  double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
+  // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
+  cout << elapsed_time_ms*0.001 << endl;
 }
