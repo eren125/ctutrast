@@ -5,4 +5,6 @@ run
 KAXQIL_clean.vol
 structure/*
 grid/*
-!grid/KAXQIL_clean_14_0.1_10.ccp4
+!grid/KAXQIL_clean_14_0.6_10.ccp4
+viz/.ipynb_checkpoints
+viz/temp-plot.html
