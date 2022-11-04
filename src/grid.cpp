@@ -199,8 +199,4 @@ int main(int argc, char* argv[]) {
   map.update_ccp4_header(2, true);
   string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
   map.write_ccp4_map(filename);
-  // map.read_ccp4("my_map.ccp4");
-
-  // visualisation using python
-
 }
