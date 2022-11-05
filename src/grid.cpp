@@ -12,9 +12,6 @@
 
 // Set key constants
 #define R 8.31446261815324e-3 // kJ/mol/K
-#define sqrt_2 1.414213562373095
-#define min_factor 1.122462048309373  // 2^(1/6)
-#define N_A 6.02214076e23    // part/mol
 
 double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double inv_cutoff_6, double inv_distance_12, double inv_cutoff_12) {
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
@@ -26,8 +23,7 @@ string generate_ccp4name(string structure_file, double spacing, double energy_th
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
   string::size_type const p(structure_name.find_last_of('.'));
   structure_name = structure_name.substr(0, p);
-  structure_name = "grid/" + structure_name;
-  structure_name += "_";
+  structure_name = "grid/" + structure_name + "_";
   snprintf(buffer, 20, "%g", spacing);
   structure_name += buffer;
   structure_name += "_";
@@ -43,7 +39,7 @@ namespace cif = gemmi::cif;
 int main(int argc, char* argv[]) {
   // Set up Input Variables
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
-  auto structure_file = argv[1];
+  string structure_file = argv[1];
   string forcefield_path = argv[2];
   double temperature = stod(argv[3]);
   double cutoff = stod(argv[4]);
@@ -180,14 +176,10 @@ int main(int argc, char* argv[]) {
           }
         }
         grid.data[idx] = energy;
-        // symmetry
-        int sym_count = 1;
+        // propagate using symmetry
         for (size_t k = 0; k < grid_ops.size(); ++k) {
           array<int,3> t = grid_ops[k].apply(u, v, w);
           size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
-          if (grid.data[mate_idx]!=0.0)
-            continue;
-          sym_count++;
           grid.data[mate_idx] = energy;
         }
       }

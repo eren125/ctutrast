@@ -33,7 +33,7 @@ namespace cif = gemmi::cif;
 int main(int argc, char* argv[]) {
   // Set up Input Variables
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
-  auto structure_file = argv[1];
+  string structure_file = argv[1];
   string forcefield_path = argv[2];
   double temperature = stod(argv[3]);
   double cutoff = stod(argv[4]);
