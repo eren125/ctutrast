@@ -8,3 +8,4 @@ grid/*
 !grid/KAXQIL_clean_14_0.6_10.ccp4
 viz/*
 !viz/*py
+!viz/requirements.txt
