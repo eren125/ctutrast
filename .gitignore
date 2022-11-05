@@ -1,5 +1,6 @@
 .vscode
-a.out
+*.out
+*.swp
 log
 run
 KAXQIL_clean.vol
