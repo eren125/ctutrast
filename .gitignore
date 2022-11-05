@@ -1,6 +1,7 @@
 .vscode
 *.out
 *.swp
+*.pdb
 log
 run
 KAXQIL_clean.vol
