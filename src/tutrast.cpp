@@ -34,7 +34,16 @@ int main(int argc, char* argv[]) {
 
   // First identify big channels 
   double energy_threshold = 20; //kJ/mol
-
+  size_t idx = 0;
+  for (int w = 0; w != map.grid.nw; ++w)
+    for (int v = 0; v != map.grid.nv; ++v)
+      for (int u = 0; u != map.grid.nu; ++u, ++idx) {
+        double energy = map.grid.data[idx];
+        if (energy < energy_threshold) {
+          continue;
+        }
+      }
+  // Mask use to remove blocked space
 
   // Calculate diffusion coefficients
 
