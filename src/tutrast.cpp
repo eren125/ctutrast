@@ -1,8 +1,9 @@
 #include <iostream>      // printing
 #include <string>
+#include <chrono>      // timer
 
-#include <gemmi/grid.hpp>
 #include <gemmi/ccp4.hpp>
+#include <gemmi/asumask.hpp>
 
 #define R 8.31446261815324e-3 // kJ/mol/K
 

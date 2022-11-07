@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
   bool denser = true;
   grid.spacegroup = sg;
   grid.set_unit_cell(structure.cell);
-  grid.set_size_from_spacing(approx_spacing, denser);
+  grid.set_size_from_spacing(approx_spacing, gemmi::GridSizeRounding::Nearest );
 
   // Auxiliary variables
   string element_host_str;
@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
     // Quick calculation in the occupied space
-    grid.use_points_around(site.fract, access_coeff*sigma, [&](double& ref, double d2){ref = 1;}, false);
+    grid.use_points_around<true>(site.fract, access_coeff*sigma, [&](double& ref, double d2){ref = 1;}, false);
     gemmi::Element el(element_host_str.c_str());
     mass += el.weight();
     // neighbor list within rectangular box

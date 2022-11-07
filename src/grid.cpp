@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
   bool denser = true;
   grid.spacegroup = sg;
   grid.set_unit_cell(structure.cell);
-  grid.set_size_from_spacing(approx_spacing, denser);
+  grid.set_size_from_spacing(approx_spacing, gemmi::GridSizeRounding::Nearest );
 
   // Auxiliary variables
   string element_host_str;
@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
     // Quick calculation in the occupied space
-    grid.use_points_around(site.fract, sigma, [&](double& ref, double d2){ 
+    grid.use_points_around<true>(site.fract, sigma, [&](double& ref, double d2){ 
       double inv_distance_6 = 1.0 / (d2*d2*d2);
       double inv_distance_12 = inv_distance_6 * inv_distance_6;
       ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12);
@@ -187,7 +187,7 @@ int main(int argc, char* argv[]) {
   // Save grid in ccp4 binary format
   gemmi::Ccp4<double> map;
   map.grid = grid;
-  map.setup(gemmi::GridSetup::Full, NAN);
+  map.setup(NAN, gemmi::MapSetup::Full);
   map.update_ccp4_header(2, true);
   string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
   map.write_ccp4_map(filename);
