@@ -1,3 +1,4 @@
+# %%
 import numpy as np
 import plotly.graph_objects as go
 from plotly.offline import plot
@@ -17,6 +18,7 @@ ccp4 = gemmi.read_ccp4_map(os.path.join(file_dir,grid_path))
 ccp4.setup(2)
 arr = np.array(ccp4.grid, copy=False)
 
+# %%
 # Cubic box
 orth_mat = np.array(ccp4.grid.unit_cell.orthogonalization_matrix)
 # cube_len = max(20,orth_mat[0,0],orth_mat[1,1],orth_mat[2,2])

@@ -187,7 +187,7 @@ int main(int argc, char* argv[]) {
   // Save grid in ccp4 binary format
   gemmi::Ccp4<double> map;
   map.grid = grid;
-  map.setup(NAN, gemmi::MapSetup::Full);
+  map.setup(NAN, gemmi::MapSetup::ReorderOnly);
   map.update_ccp4_header(2, true);
   string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
   map.write_ccp4_map(filename);
