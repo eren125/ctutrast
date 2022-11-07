@@ -73,25 +73,32 @@ template<typename T, typename M> std::vector<T> model_subchains(M* model) {
 } // namespace impl
 
 
-// File format with macromolecular model.
-// Unknown = unknown coordinate format (not ChemComp)
-// UnknownAny = any format (coordinate file for a monomer/ligand/chemcomp)
-enum class CoorFormat { Unknown, UnknownAny, Pdb, Mmcif, Mmjson, ChemComp };
+/// File format of a macromolecular model. When passed to read_structure():
+/// Unknown = guess format from the extension,
+/// Detect = guess format from the content.
+enum class CoorFormat { Unknown, Detect, Pdb, Mmcif, Mmjson, ChemComp };
 
-// corresponds to _atom_site.calc_flag in mmCIF
+/// corresponds to _atom_site.calc_flag in mmCIF
 enum class CalcFlag : signed char { NotSet=0, Determined, Calculated, Dummy };
 
-// options affecting how pdb file is read
+/// options affecting how pdb file is read
 struct PdbReadOptions {
   int max_line_length = 0;
   bool split_chain_on_ter = false;
+  bool skip_remarks = false;
 };
 
+// remove empty residues from chain, empty chains from model, etc
+template<class T> void remove_empty_children(T& obj) {
+  using Item = typename T::child_type;
+  vector_remove_if(obj.children(), [](const Item& x) { return x.children().empty(); });
+}
 
 inline bool is_same_conformer(char altloc1, char altloc2) {
   return altloc1 == '\0' || altloc2 == '\0' || altloc1 == altloc2;
 }
 
+/// Represents atom site in macromolecular structure (~100 bytes).
 struct Atom {
   static const char* what() { return "Atom"; }
   std::string name;
@@ -100,8 +107,9 @@ struct Atom {
   Element element = El::X;
   CalcFlag calc_flag = CalcFlag::NotSet;  // mmCIF _atom_site.calc_flag
   char flag = '\0';  // a custom flag
-  int serial = 0;
   short tls_group_id = -1;
+  int serial = 0;
+  float mixture = 1.f;  // custom value, one use is Refmac's ccp4_hd_mixture
   Position pos;
   float occ = 1.0f;
   // ADP - in MX it's usual to give isotropic ADP as B and anisotropic as U
@@ -120,6 +128,20 @@ struct Atom {
   bool has_altloc() const { return altloc != '\0'; }
   double b_eq() const { return u_to_b() / 3. * aniso.trace(); }
   bool is_hydrogen() const { return gemmi::is_hydrogen(element); }
+
+  // Name as a string left-padded like in the PDB format:
+  // the first two characters make the element name.
+  std::string padded_name() const {
+    std::string s;
+    const char* el = element.uname();
+    if (el[1] == '\0' &&
+        (el[0] == alpha_up(name[0]) || (is_hydrogen() && alpha_up(name[0]) == 'H')) &&
+        name.size() < 4)
+      s += ' ';
+    s += name;
+    return s;
+  }
+
   // a method present in Atom, Residue, ... Structure - used in templates
   Atom empty_copy() const { return Atom(*this); }
 };
@@ -146,11 +168,14 @@ struct Residue : public ResidueId {
   static const char* what() { return "Residue"; }
 
   std::string subchain;   // mmCIF _atom_site.label_asym_id
+  std::string entity_id;  // mmCIF _atom_site.label_entity_id
   OptionalNum label_seq;  // mmCIF _atom_site.label_seq_id
   EntityType entity_type = EntityType::Unknown;
   char het_flag = '\0';   // 'A' = ATOM, 'H' = HETATM, 0 = unspecified
   bool is_cis = false;    // bond to the next residue marked as cis
   char flag = '\0';       // custom flag
+  SiftsUnpResidue sifts_unp;  // UniProt reference from SIFTS
+  short group_idx = 0;        // ignore - internal variable
   std::vector<Atom> atoms;
 
   Residue() = default;
@@ -167,6 +192,7 @@ struct Residue : public ResidueId {
     res.flag = flag;
     return res;
   }
+  using child_type = Atom;
   std::vector<Atom>& children() { return atoms; }
   const std::vector<Atom>& children() const { return atoms; }
 
@@ -178,17 +204,14 @@ struct Residue : public ResidueId {
   }
 
   // default values accept anything
-  const Atom* find_atom(const std::string& atom_name, char altloc,
-                        El el=El::X) const {
-    for (const Atom& a : atoms)
-      if (a.name == atom_name && a.altloc_matches(altloc)
-          && (el == El::X || a.element == el))
+  Atom* find_atom(const std::string& atom_name, char altloc, El el=El::X) {
+    for (Atom& a : atoms)
+      if (a.name == atom_name && a.altloc_matches(altloc) && (el == El::X || a.element == el))
         return &a;
     return nullptr;
   }
-  Atom* find_atom(const std::string& atom_name, char altloc, El el=El::X) {
-    const Residue* const_this = this;
-    return const_cast<Atom*>(const_this->find_atom(atom_name, altloc, el));
+  const Atom* find_atom(const std::string& atom_name, char altloc, El el=El::X) const {
+    return const_cast<Residue*>(this)->find_atom(atom_name, altloc, el);
   }
 
   std::vector<Atom>::iterator find_atom_iter(const std::string& atom_name,
@@ -213,28 +236,12 @@ struct Residue : public ResidueId {
   }
 
   // short-cuts to access peptide backbone atoms
-  const Atom* get_ca() const {
-    static const std::string CA("CA");
-    return find_atom(CA, '*', El::C);
-  }
-  const Atom* get_c() const {
-    static const std::string C("C");
-    return find_atom(C, '*', El::C);
-  }
-  const Atom* get_n() const {
-    static const std::string N("N");
-    return find_atom(N, '*', El::N);
-  }
-
+  const Atom* get_ca() const { return find_atom("CA", '*', El::C); }
+  const Atom* get_c() const { return find_atom("C", '*', El::C); }
+  const Atom* get_n() const { return find_atom("N", '*', El::N); }
   // short-cuts to access nucleic acid atoms
-  const Atom* get_p() const {
-    static const std::string P("P");
-    return find_atom(P, '*', El::P);
-  }
-  const Atom* get_o3prim() const {
-    static const std::string P("O3'");
-    return find_atom(P, '*', El::O);
-  }
+  const Atom* get_p() const { return find_atom("P", '*', El::P); }
+  const Atom* get_o3prim() const { return find_atom("O3'", '*', El::O); }
 
   bool same_conformer(const Residue& other) const {
     return atoms.empty() || other.atoms.empty() ||
@@ -242,7 +249,9 @@ struct Residue : public ResidueId {
            other.find_atom(other.atoms[0].name, atoms[0].altloc) != nullptr;
   }
 
-  // convenience function that duplicates functionality from resinfo.hpp
+  /// Convenience function that duplicates functionality from resinfo.hpp.
+  /// Returns true for HOH and DOD (and old alternative names of HOH),
+  /// but not for OH and H3O/D3O.
   bool is_water() const {
     if (name.length() != 3)
       return false;
@@ -292,7 +301,8 @@ struct ConstResidueSpan : Span<const Residue> {
     if (this->empty())
       throw std::out_of_range("subchain_id(): empty span");
     if (this->size() > 1 && this->front().subchain != this->back().subchain)
-      fail("subchain id varies");
+      fail("subchain id varies in a residue span: ", this->front().subchain,
+           " vs ", this->back().subchain);
     return this->begin()->subchain;
   }
 
@@ -429,13 +439,13 @@ inline ResidueSpan::GroupingProxy ResidueSpan::residue_groups() {
 namespace impl {
 template<typename T, typename Ch> std::vector<T> chain_subchains(Ch* ch) {
   std::vector<T> v;
-  auto span_start = ch->residues.begin();
-  for (auto i = span_start; i != ch->residues.end(); ++i)
-    if (i->subchain != span_start->subchain) {
-      v.push_back(ch->whole().sub(span_start, i));
-      span_start = i;
-    }
-  v.push_back(ch->whole().sub(span_start, ch->residues.end()));
+  for (auto start = ch->residues.begin(); start != ch->residues.end(); ) {
+    auto end = start + 1;
+    while (end != ch->residues.end() && end->subchain == start->subchain)
+      ++end;
+    v.push_back(ch->whole().sub(start, end));
+    start = end;
+  }
   return v;
 }
 } // namespace impl
@@ -448,11 +458,11 @@ struct Chain {
   explicit Chain(std::string cname) noexcept : name(cname) {}
 
   ResidueSpan whole() {
-    auto begin = residues.empty() ? nullptr : &residues.at(0);
+    Residue* begin = residues.empty() ? nullptr : &residues[0];
     return ResidueSpan(residues, begin, residues.size());
   }
   ConstResidueSpan whole() const {
-    auto begin = residues.empty() ? nullptr : &residues.at(0);
+    const Residue* begin = residues.empty() ? nullptr : &residues[0];
     return ConstResidueSpan(begin, residues.size());
   }
 
@@ -464,9 +474,14 @@ struct Chain {
   }
 
   ResidueSpan get_polymer() {
-    return get_residue_span([](const Residue& r) {
-        return r.entity_type == EntityType::Polymer;
-    });
+    auto begin = residues.begin();
+    while (begin != residues.end() && begin->entity_type != EntityType::Polymer)
+      ++begin;
+    auto end = begin;
+    while (end != residues.end() && end->entity_type == EntityType::Polymer
+                                 && end->subchain == begin->subchain)
+      ++end;
+    return ResidueSpan(residues, &*begin, end - begin);
   }
   ConstResidueSpan get_polymer() const {
     return const_cast<Chain*>(this)->get_polymer();
@@ -522,6 +537,7 @@ struct Chain {
 
   // methods present in Structure, Model, ... - used in templates
   Chain empty_copy() const { return Chain(name); }
+  using child_type = Residue;
   std::vector<Residue>& children() { return residues; }
   const std::vector<Residue>& children() const { return residues; }
 
@@ -605,32 +621,42 @@ inline AtomAddress make_address(const Chain& ch, const Residue& res, const Atom&
 template<typename CraT>
 class CraIterPolicy {
 public:
-  typedef CraT value_type;
+  using value_type = CraT;
+  using reference = const CraT;
   CraIterPolicy() : chains_end(nullptr), cra{nullptr, nullptr, nullptr} {}
   CraIterPolicy(const Chain* end, CraT cra_) : chains_end(end), cra(cra_) {}
   void increment() {
-    if (cra.atom)
-      if (++cra.atom == vector_end_ptr(cra.residue->atoms)) {
+    if (cra.atom == nullptr)
+      return;
+    if (++cra.atom == vector_end_ptr(cra.residue->atoms)) {
+      do {
         if (++cra.residue == vector_end_ptr(cra.chain->residues)) {
-          if (++cra.chain == chains_end) {
-            cra.atom = nullptr;
-            return;
-          }
-          cra.residue = &cra.chain->residues.at(0);
+          do {
+            if (++cra.chain == chains_end) {
+              cra.atom = nullptr;
+              return;
+            }
+          } while (cra.chain->residues.empty());
+          cra.residue = &cra.chain->residues[0];
         }
-        cra.atom = &cra.residue->atoms.at(0);
-      }
+      } while (cra.residue->atoms.empty());
+      cra.atom = &cra.residue->atoms[0];
+    }
   }
   void decrement() {
-    if (cra.atom)
-      if (cra.atom-- == cra.residue->atoms.data()) {
-        if (cra.residue-- == cra.chain->residues.data())
-          cra.residue = &(--cra.chain)->residues.back();
-        cra.atom = &cra.residue->atoms.back();
+    while (cra.atom == nullptr || cra.atom == cra.residue->atoms.data()) {
+      while (cra.residue == nullptr || cra.residue == cra.chain->residues.data()) {
+        // iterating backward beyond begin() will have undefined effects
+        while ((--cra.chain)->residues.empty()) {}
+        cra.residue = vector_end_ptr(cra.chain->residues);
       }
+      --cra.residue;
+      cra.atom = vector_end_ptr(cra.residue->atoms);
+    }
+    --cra.atom;
   }
   bool equal(const CraIterPolicy& o) const { return cra.atom == o.cra.atom; }
-  CraT& dereference() { return cra; }
+  CraT dereference() { return cra; }  // make copy b/c increment() modifies cra
   using const_policy = CraIterPolicy<const_CRA>;
   operator const_policy() const { return const_policy(chains_end, cra); }
 private:
@@ -643,13 +669,16 @@ struct CraProxy_ {
   ChainsRefT chains;
   using iterator = BidirIterator<CraIterPolicy<CraT>>;
   iterator begin() {
-    CraT cra;
-    cra.chain = &chains.at(0);
-    cra.residue = &cra.chain->residues.at(0);
-    cra.atom = &cra.residue->atoms.at(0);
-    return CraIterPolicy<CraT>{vector_end_ptr(chains), cra};
+    for (auto& chain : chains)
+      for (auto& residue : chain.residues)
+        for (auto& atom : residue.atoms)
+          return CraIterPolicy<CraT>{vector_end_ptr(chains), CraT{&chain, &residue, &atom}};
+    return {};
   }
-  iterator end() { return {}; }
+  iterator end() {
+    auto* chains_end = vector_end_ptr(chains);
+    return CraIterPolicy<CraT>{chains_end, CraT{chains_end, nullptr, nullptr}};
+  }
 };
 
 using CraProxy = CraProxy_<CRA, std::vector<Chain>&>;
@@ -757,20 +786,23 @@ struct Model {
     return names;
   }
 
-  CRA find_cra(const AtomAddress& address) {
+  CRA find_cra(const AtomAddress& address, bool ignore_segment=false) {
     for (Chain& chain : chains)
-      if (chain.name == address.chain_name)
-        if (Residue* res = chain.find_residue(address.res_id)) {
-          Atom *at = nullptr;
-          if (!address.atom_name.empty())
-            at = res->find_atom(address.atom_name, address.altloc);
-          return {&chain, res, at};
-        }
+      if (chain.name == address.chain_name) {
+        for (Residue& res : chain.residues)
+          if (address.res_id.matches_noseg(res) &&
+              (ignore_segment || address.res_id.segment == res.segment)) {
+            Atom *at = nullptr;
+            if (!address.atom_name.empty())
+              at = res.find_atom(address.atom_name, address.altloc);
+            return {&chain, &res, at};
+          }
+      }
     return {nullptr, nullptr, nullptr};
   }
 
-  const_CRA find_cra(const AtomAddress& address) const {
-    return const_cast<Model*>(this)->find_cra(address);
+  const_CRA find_cra(const AtomAddress& address, bool ignore_segment=false) const {
+    return const_cast<Model*>(this)->find_cra(address, ignore_segment);
   }
 
   CraProxy all() { return {chains}; }
@@ -796,27 +828,28 @@ struct Model {
 
   // methods present in Structure, Model, ... - used in templates
   Model empty_copy() const { return Model(name); }
+  using child_type = Chain;
   std::vector<Chain>& children() { return chains; }
   const std::vector<Chain>& children() const { return chains; }
 };
 
-inline Entity* find_entity(const std::string& subchain_id,
-                           std::vector<Entity>& entities) {
+inline Entity* find_entity_of_subchain(const std::string& subchain_id,
+                                       std::vector<Entity>& entities) {
   if (!subchain_id.empty())
     for (Entity& ent : entities)
       if (in_vector(subchain_id, ent.subchains))
         return &ent;
   return nullptr;
 }
-inline const Entity* find_entity(const std::string& subchain_id,
-                                 const std::vector<Entity>& entities) {
-  return find_entity(subchain_id, const_cast<std::vector<Entity>&>(entities));
+inline const Entity* find_entity_of_subchain(const std::string& subchain_id,
+                                             const std::vector<Entity>& entities) {
+  return find_entity_of_subchain(subchain_id, const_cast<std::vector<Entity>&>(entities));
 }
 
 struct Structure {
   std::string name;
   UnitCell cell;
-  std::string spacegroup_hm;
+  std::string spacegroup_hm;  // usually pdb symbol, cf. SpaceGroup::pdb_name()
   std::vector<Model> models;
   std::vector<NcsOp> ncs;
   std::vector<Entity> entities;
@@ -825,6 +858,9 @@ struct Structure {
   std::vector<Sheet> sheets;
   std::vector<Assembly> assemblies;
   Metadata meta;
+
+  CoorFormat input_format = CoorFormat::Unknown;
+  bool has_hd_mixture = false;  // uses Refmac's ccp4_hd_mixture
 
   // Store ORIGXn / _database_PDB_matrix.origx*
   bool has_origx = false;
@@ -836,8 +872,6 @@ struct Structure {
   std::vector<std::string> raw_remarks;
   // simplistic resolution value from/for REMARK 2
   double resolution = 0;
-
-  CoorFormat input_format = CoorFormat::Unknown;
 
   const SpaceGroup* find_spacegroup() const {
     return find_spacegroup_by_name(spacegroup_hm, cell.alpha, cell.gamma);
@@ -882,7 +916,7 @@ struct Structure {
   }
 
   Entity* get_entity_of(const ConstResidueSpan& sub) {
-    return sub ? find_entity(sub.subchain_id(), entities) : nullptr;
+    return sub ? find_entity_of_subchain(sub.subchain_id(), entities) : nullptr;
   }
   const Entity* get_entity_of(const ConstResidueSpan& sub) const {
     return const_cast<Structure*>(this)->get_entity_of(sub);
@@ -928,6 +962,11 @@ struct Structure {
       model.merge_chain_parts(min_sep);
   }
 
+  void remove_empty_chains() {
+    for (Model& model : models)
+      remove_empty_children(model);
+  }
+
   // copy all but models (in general, empty_copy copies all but children)
   Structure empty_copy() const {
     Structure st;
@@ -949,6 +988,7 @@ struct Structure {
     st.input_format = input_format;
     return st;
   }
+  using child_type = Model;
   std::vector<Model>& children() { return models; }
   const std::vector<Model>& children() const { return models; }
 

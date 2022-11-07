@@ -7,9 +7,14 @@
 #include <cerrno>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 
 #include "config.hpp"
 
+// In PEGTL 3 input_error was changed to std::system_error and
+// std::filesystem::filesystem_error (the latter is derived from the former).
+// Here we half-backported it - input_error is replaced with system_error.
+#if 0
 namespace tao
 {
    namespace TAO_PEGTL_NAMESPACE
@@ -29,6 +34,7 @@ namespace tao
    }  // namespace TAO_PEGTL_NAMESPACE
 
 }  // namespace tao
+#endif
 
 #define TAO_PEGTL_INTERNAL_UNWRAP( ... ) __VA_ARGS__
 
@@ -36,8 +42,8 @@ namespace tao
    do {                                                                                 \
       const int errorno = errno;                                                        \
       std::ostringstream oss;                                                           \
-      oss << TAO_PEGTL_INTERNAL_UNWRAP( MESSAGE ) << " errno " << errorno; \
-      throw tao::TAO_PEGTL_NAMESPACE::input_error( oss.str(), errorno );                \
+      oss << TAO_PEGTL_INTERNAL_UNWRAP( MESSAGE ); \
+      throw std::system_error( errorno, std::system_category(), oss.str() );            \
    } while( false )
 
 #endif

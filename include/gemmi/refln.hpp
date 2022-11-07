@@ -15,6 +15,8 @@
 
 namespace gemmi {
 
+enum class DataType { Unknown, Unmerged, Mean, Anomalous };
+
 struct ReflnBlock {
   cif::Block block;
   std::string entry_id;
@@ -60,7 +62,7 @@ struct ReflnBlock {
   void check_ok() const { if (!ok()) fail("Invalid ReflnBlock"); }
 
   // position after "_refln." or "_diffrn_refln."
-  int tag_offset() const { return refln_loop ? 7 : 14; }
+  size_t tag_offset() const { return refln_loop ? 7 : 14; }
 
   void use_unmerged(bool unmerged) {
     default_loop = unmerged ? diffrn_refln_loop : refln_loop;
@@ -78,7 +80,7 @@ struct ReflnBlock {
   int find_column_index(const std::string& tag) const {
     if (!ok())
       return -1;
-    int name_pos = tag_offset();
+    size_t name_pos = tag_offset();
     for (int i = 0; i != (int) default_loop->tags.size(); ++i)
       if (default_loop->tags[i].compare(name_pos, std::string::npos, tag) == 0)
         return i;
@@ -88,7 +90,7 @@ struct ReflnBlock {
   size_t get_column_index(const std::string& tag) const {
     int idx = find_column_index(tag);
     if (idx == -1)
-      throw std::runtime_error("Column not found: " + tag);
+      fail("Column not found: " + tag);
     return idx;
   }
 
@@ -141,19 +143,27 @@ struct ReflnBlock {
 // moves blocks from the argument to the return value
 inline
 std::vector<ReflnBlock> as_refln_blocks(std::vector<cif::Block>&& blocks) {
-  std::vector<ReflnBlock> r;
-  r.reserve(blocks.size());
+  std::vector<ReflnBlock> rvec;
+  rvec.reserve(blocks.size());
   for (cif::Block& block : blocks)
-    r.emplace_back(std::move(block));
+    rvec.emplace_back(std::move(block));
   blocks.clear();
-  // Some blocks miss space group tag, try to fill it in.
+  // Some blocks miss space group or unit cell, try to fill it in.
   const SpaceGroup* first_sg = nullptr;
-  for (ReflnBlock& rblock : r)
+  const UnitCell* first_cell = nullptr;
+  for (ReflnBlock& rblock : rvec) {
     if (!first_sg)
       first_sg = rblock.spacegroup;
     else if (!rblock.spacegroup)
       rblock.spacegroup = first_sg;
-  return r;
+    if (rblock.cell.is_crystal()) {
+      if (!first_cell)
+        first_cell = &rblock.cell;
+    } else if (first_cell) {
+      rblock.cell = *first_cell;
+    }
+  }
+  return rvec;
 }
 
 // Get the first (merged) block with required labels.
@@ -193,7 +203,7 @@ inline ReflnBlock hkl_cif_as_refln_block(cif::Block& block) {
   rb.entry_id = rb.block.name;
   impl::set_cell_from_mmcif(rb.block, rb.cell, /*mmcif=*/false);
   const char* hm_tag = "_symmetry_space_group_name_H-M";
-  if (const std::string* hm = block.find_value(hm_tag))
+  if (const std::string* hm = rb.block.find_value(hm_tag))
     rb.spacegroup = find_spacegroup_by_name(cif::as_string(*hm),
                                             rb.cell.alpha, rb.cell.gamma);
   rb.cell.set_cell_images_from_spacegroup(rb.spacegroup);

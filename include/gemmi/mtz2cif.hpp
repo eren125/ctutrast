@@ -16,16 +16,18 @@
 #include <set>
 #include <algorithm>     // for all_of
 #include "asudata.hpp"   // for calculate_hkl_value_correlation
+#include "eig3.hpp"      // for eigen_decomposition
 #include "mtz.hpp"       // for Mtz
 #include "xds_ascii.hpp" // for XdsAscii
 #include "atox.hpp"      // for read_word
-#include "merge.hpp"     // for Intensities, read_unmerged_intensities_from_mtz
+#include "merge.hpp"     // for Intensities
 #include "sprintf.hpp"   // for gf_snprintf, to_str
 #include "version.hpp"   // for GEMMI_VERSION
 
 namespace gemmi {
 
-struct MtzToCif {
+class MtzToCif {
+public:
   enum Var { Dot=-1, Qmark=-2, Counter=-3, DatasetId=-4, Image=-5 };
 
   // options that can be set directly
@@ -35,37 +37,41 @@ struct MtzToCif {
   bool with_comments = true;         // write comments
   bool with_history = true;          // write MTZ history in comments
   bool skip_empty = false;           // skip reflections with no values
+  bool skip_negative_sigi = false;   // skip refl. with sigma(I) < 0 in unmerged
   bool enable_UB = false;            // write _diffrn_orient_matrix.UB
+  bool write_staraniso_tensor = true; // write _reflns.pdbx_aniso_B_tensor_*
   bool write_special_marker_for_pdb = false;
   int less_anomalous = 0;            // skip (+)/(-) columns even if in spec
   std::string skip_empty_cols;       // columns used to determine "emptiness"
   double wavelength = NAN;           // user-specified wavelength
   int trim = 0;                      // output only reflections -N<=h,k,l<=N
   int free_flag_value = -1;          // -1 = auto: 0 or (if we have >50% of 0's) 1
+  std::string staraniso_version;     // for _software.version in "special_marker"
+  std::string gemmi_run_from;        // added to gemmi as _software.description
 
   static const char** default_spec(bool for_merged) {
     static const char* merged[] = {
       "H                          H index_h",
       "K                          H index_k",
       "L                          H index_l",
-      "? IMEAN|I                  J intensity_meas",
-      "& SIGIMEAN|SIGI            Q intensity_sigma",
-      "? I(+)                     K pdbx_I_plus",
-      "& SIGI(+)                  M pdbx_I_plus_sigma",
-      "? I(-)                     K pdbx_I_minus",
-      "& SIGI(-)                  M pdbx_I_minus_sigma",
+      "? IMEAN|I|IOBS|I-obs       J intensity_meas",
+      "& SIG{prev}                Q intensity_sigma",
+      "? I(+)|IOBS(+)|I-obs(+)    K pdbx_I_plus",
+      "& SIG{prev}                M pdbx_I_plus_sigma",
+      "? I(-)|IOBS(-)|I-obs(-)    K pdbx_I_minus",
+      "& SIG{prev}                M pdbx_I_minus_sigma",
       // TODO: FP from Refmac should show warning or error
-      "? F|FP                     F F_meas_au",
-      "& SIGF|SIGFP               Q F_meas_sigma_au",
-      "? F(+)                     G pdbx_F_plus",
-      "& SIGF(+)                  L pdbx_F_plus_sigma",
-      "? F(-)                     G pdbx_F_minus",
-      "& SIGF(-)                  L pdbx_F_minus_sigma",
-      "? FREE|RFREE|FREER|FreeR_flag I status S",
+      "? F|FP|FOBS|F-obs          F F_meas_au",
+      "& SIG{prev}                Q F_meas_sigma_au",
+      "? F(+)|FOBS(+)|F-obs(+)    G pdbx_F_plus",
+      "& SIG{prev}                L pdbx_F_plus_sigma",
+      "? F(-)|FOBS(-)|F-obs(-)    G pdbx_F_minus",
+      "& SIG{prev}                L pdbx_F_minus_sigma",
+      "? FREE|RFREE|FREER|FreeR_flag|R-free-flags|FreeRflag I status S",
       "? FWT|2FOFCWT              F pdbx_FWT",
-      "& PHWT|PH2FOFCWT           P pdbx_PHWT",
+      "& PHWT|PH2FOFCWT           P pdbx_PHWT .3f",
       "? DELFWT|FOFCWT            F pdbx_DELFWT",
-      "& DELPHWT|PHDELWT|PHFOFCWT P pdbx_DELPHWT",
+      "& DELPHWT|PHDELWT|PHFOFCWT P pdbx_DELPHWT .3f",
       nullptr
     };
     static const char* unmerged[] = {
@@ -84,8 +90,11 @@ struct MtzToCif {
     return for_merged ? merged : unmerged;
   }
 
-  void write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& os);
+  void write_cif(const Mtz& mtz, const Mtz* mtz2,
+                 SMat33<double>* staraniso_b, std::ostream& os);
   void write_cif_from_xds(const XdsAscii& xds, std::ostream& os);
+
+  void write_staraniso_b_in_mmcif(const SMat33<double>& b, char* buf, std::ostream& os);
 
 private:
   // describes which MTZ column is to be translated to what mmCIF column
@@ -99,29 +108,29 @@ private:
 
   // data corresponding to one sweep (dataset) in unmerged MTZ file
   struct SweepData {
-    int id;
-    int batch_count;
-    int offset;
-    const Mtz::Batch* first_batch;
-    const Mtz::Dataset* dataset;
+    int id = 0;
+    int batch_count = 0;
+    int offset = 0;
+    int crystal_id = 1;
+    const Mtz::Batch* first_batch = nullptr;
+    const Mtz::Dataset* dataset = nullptr;
   };
 
   std::vector<SweepData> sweeps;
   std::unordered_map<int, int> sweep_indices;
 
-  std::vector<Trans> recipe;
-
-  const Trans* get_status_translation() const {
+  static const Trans* get_status_translation(const std::vector<Trans>& recipe) {
     for (const Trans& t: recipe)
       if (t.is_status)
         return &t;
     return nullptr;
   }
 
-  void gather_sweep_data(const Mtz& mtz) {
+  bool gather_sweep_data(const Mtz& mtz) {
+    bool ok = true;
     int prev_number = INT_MIN;
     int prev_dataset = INT_MIN;
-    SweepData sweep{0, 0, 0, nullptr, nullptr};
+    SweepData sweep;
     for (const Mtz::Batch& batch : mtz.batches) {
       int dataset_id = batch.dataset_id();
       if (dataset_id != prev_dataset || batch.number != prev_number + 1) {
@@ -136,6 +145,7 @@ private:
           sweep.dataset = &mtz.dataset(dataset_id);
         } catch (std::runtime_error&) {
           sweep.dataset = nullptr;
+          ok = false;
           mtz.warn("Reference to absent dataset: " + std::to_string(dataset_id));
         }
       }
@@ -145,6 +155,7 @@ private:
     }
     if (sweep.id != 0)
       sweeps.push_back(sweep);
+    return ok;
   }
 
   // Get the first (non-zero) DWAVEL corresponding to an intensity, amplitude
@@ -216,16 +227,16 @@ private:
     bool discard_next_line = false;
   };
 
-  void prepare_recipe(const Mtz& mtz) {
+  void prepare_recipe(const Mtz& mtz, std::vector<Trans>& recipe) const {
     recipe.clear();
     SpecParserState state;
     if (!spec_lines.empty()) {
       for (const std::string& line : spec_lines)
-        parse_spec_line(line.c_str(), mtz, state);
+        parse_spec_line(recipe, line.c_str(), mtz, state);
     } else {
       const char** lines = default_spec(/*for_merged=*/mtz.batches.empty());
       for (; *lines != nullptr; ++lines)
-        parse_spec_line(*lines, mtz, state);
+        parse_spec_line(recipe, *lines, mtz, state);
     }
     if (recipe.empty())
       fail("empty translation recipe");
@@ -239,13 +250,14 @@ private:
         Trans tr;
         tr.col_idx = i;
         tr.tag = "index_";
-        tr.tag += ('h' + i); // h, k or l
+        tr.tag += "hkl"[i]; // h, k or l
         recipe.insert(recipe.begin(), tr);
       }
   }
 
   // adds results to recipe
-  void parse_spec_line(const char* line, const Mtz& mtz, SpecParserState& state) {
+  void parse_spec_line(std::vector<Trans>& recipe, const char* line,
+                       const Mtz& mtz, SpecParserState& state) const {
     Trans tr;
     const char* p = line;
     if (*p == '&') {
@@ -270,7 +282,8 @@ private:
       if (less_anomalous > 0) {
         bool is_i_ano = (ctype == 'K' || ctype == 'M');
         if (less_anomalous == 1
-            ? is_i_ano && mtz.count_type('J') != 0 && mtz.count_type('G') > 1
+            ? is_i_ano && mtz.count_type('J') != 0 && mtz.count_type('G') > 1 &&
+                          staraniso_version.empty()
             : is_i_ano || ctype == 'G' || ctype == 'D' || ctype == 'L') {
           recipe.resize(state.verified_spec_size);
           state.discard_next_line = true;
@@ -300,6 +313,9 @@ private:
       else
         fail("Unknown variable in the spec: " + column);
     } else {
+      if (column.find('{') != std::string::npos &&
+          !recipe.empty() && recipe.back().col_idx >= 0)
+        replace_all(column, "{prev}", mtz.columns[recipe.back().col_idx].label);
       tr.col_idx = find_column_index(column, mtz);
       if (tr.col_idx == -1) {
         if (!optional)
@@ -328,38 +344,89 @@ private:
     recipe.push_back(tr);
   }
 
-  void write_special_marker_if_requested(std::ostream& os) const {
-    if (write_special_marker_for_pdb)
-      os << "### IF YOU MODIFY THIS FILE, REMOVE THIS SIGNATURE: ###\n"
-            "_software.pdbx_ordinal 1\n"
+  void write_special_marker_if_requested(std::ostream& os, bool merged) const {
+    if (!write_special_marker_for_pdb)
+      return;
+    os << "### IF YOU MODIFY THIS FILE, REMOVE THIS SIGNATURE: ###\n";
+    std::string desc;
+    if (!gemmi_run_from.empty())
+      desc = " 'run from " + gemmi_run_from + "'";
+    if (!merged || staraniso_version.empty()) {
+      os << "_software.pdbx_ordinal 1\n"
             "_software.classification 'data extraction'\n"
             "_software.name gemmi\n"
-            "_software.version " GEMMI_VERSION "\n"
-            "_pdbx_audit_conform.dict_name mmcif_pdbx.dic\n"
-            "_pdbx_audit_conform.dict_version 5.339\n"
-            "_pdbx_audit_conform.dict_location "
-            "https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic\n"
-            "### END OF SIGNATURE ###\n\n";
+            "_software.version " GEMMI_VERSION "\n";
+      if (!desc.empty())
+        os << "_software.description" << desc << '\n';
+    } else {
+      os << "loop_\n"
+            "_software.pdbx_ordinal\n"
+            "_software.classification\n"
+            "_software.name\n"
+            "_software.version\n";
+      if (!desc.empty())
+        os << "_software.description\n";
+      os << "1 'data extraction' gemmi " GEMMI_VERSION << desc << '\n';
+      // STARANISO here tells that intensities were scaled anisotropically.
+      os << "2 'data scaling' STARANISO '" << staraniso_version
+         << (!desc.empty() ? "' .\n" : "'\n");
+    }
+    os << "_pdbx_audit_conform.dict_name mmcif_pdbx.dic\n"
+          "_pdbx_audit_conform.dict_version 5.339\n"
+          "_pdbx_audit_conform.dict_location "
+          "https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic\n"
+          "### END OF SIGNATURE ###\n\n";
   }
 
   void write_cell_and_symmetry(const UnitCell& cell, double* rmsds,
                                const SpaceGroup* sg,
-                               char* buf, std::ostream& os);
+                               char* buf, std::ostream& os) const;
 
-  void write_main_loop(const Mtz& mtz, char* buf, std::ostream& os);
+  void write_main_loop(const Mtz& mtz, const std::vector<Trans>& recipe,
+                       char* buf, std::ostream& os);
 };
+
+// remove '_dataset_name' that can appended to column names in ccp4i
+inline void remove_appendix_from_column_names(Mtz& mtz, std::ostream& out) {
+  std::string appendix;
+  for (char type : {'J', 'F'}) {  // intensity, amplitude
+    auto cols = mtz.columns_with_type(type);
+    // Remove the appendix only in clear cases. If mtz has multiple
+    // intensity columns they could have IMEAN_this and IMEAN.
+    if (cols.size() == 1) {
+      auto pos = cols[0]->label.find('_');
+      if (pos == std::string::npos)
+        return;
+      appendix = cols[0]->label.substr(pos);
+      break;
+    }
+  }
+  if (appendix.empty())
+    return;
+  out << "Ignoring '" << appendix << "' appended to column names.\n";
+  for (Mtz::Column& col : mtz.columns) {
+    size_t from_end  = appendix.size();
+    // the appendix can before (+)/(-), i.e. I_appendix(+)
+    if (!col.label.empty() && col.label.back() == ')')
+      from_end += 3;
+    if (from_end < col.label.size() &&
+        col.label.compare(col.label.size() - from_end, appendix.size(), appendix) == 0)
+      col.label.erase(col.label.size() - from_end, appendix.size());
+  }
+}
 
 inline bool validate_merged_mtz_deposition_columns(const Mtz& mtz, std::ostream& out) {
   bool ok = true;
-  if (!mtz.column_with_one_of_labels({"FREE", "RFREE", "FREER", "FreeR_flag"})) {
+  if (!mtz.rfree_column()) {
     out << "ERROR. Merged file is missing free-set flag.\n";
     ok = false;
   }
-  if (!mtz.column_with_one_of_labels({"I", "IMEAN", "I(+)"})) {
+  if (!mtz.imean_column() && !mtz.iplus_column()) {
     out << "ERROR. Merged file is missing intensities.\n";
     ok = false;
   }
-  if (!mtz.column_with_one_of_labels({"F", "FP", "F(+)"})) {
+  if (!mtz.column_with_one_of_labels({"F", "FP", "FOBS", "F-obs",
+                                      "F(+)", "FOBS(+)", "F-obs(+)"})) {
     out << "Merged file is missing amplitudes\n"
            "(which is fine if intensities were used for refinement)\n";
   }
@@ -372,56 +439,35 @@ inline bool validate_merged_mtz_deposition_columns(const Mtz& mtz, std::ostream&
   return ok;
 }
 
-inline bool parse_voigt_notation(const char* start, const char* end, SMat33<double>& b) {
-  bool first = true;
-  for (double* u : {&b.u11, &b.u22, &b.u33, &b.u23, &b.u13, &b.u12}) {
-    if (*start != (first ? '(' : ','))
-      return false;
-    first = false;
-    auto result = fast_from_chars(++start, end, *u);
-    if (result.ec != std::errc())
-      return false;
-    start = skip_blank(result.ptr);
-  }
-  return *start == ')';
-}
-
-inline SMat33<double> get_staraniso_b(const Mtz* mtz, std::ostream& out) {
-  SMat33<double> b = {0., 0., 0., 0., 0., 0.};
-  if (mtz) {
-    size_t hlen = mtz->history.size();
-    for (size_t i = 0; i != hlen; ++i)
-      if (mtz->history[i].find("STARANISO") != std::string::npos) {
-        out << "According to history in merged MTZ it was scaled by STARANISO.\n";
-        for (size_t j = i+1; j < std::min(i+4, hlen); ++j) {
-          const std::string& line = mtz->history[j];
-          if (starts_with(line, "B=(")) {
-            bool ok = parse_voigt_notation(line.c_str() + 2, line.c_str() + line.size(), b);
-            if (!ok)
-              fail("failed to parse tensor Voigt notation: " + line);
-          }
-        }
-      }
-  }
-  return b;
-}
-
 // note: both mi and ui get modified
 inline bool validate_merged_intensities(Intensities& mi, Intensities& ui,
-                                        SMat33<double>& scale_aniso_b,
-                                        std::ostream& out) {
+                                        bool relaxed_check, std::ostream& out) {
+  // XDS files have 4 significant digits. Using accuracy 5x the precision.
+  const double max_diff = 0.005;
   out << "Checking if both files match...\n";
   bool ok = true;
   if (ui.spacegroup == mi.spacegroup) {
     out << "The same space group: " << mi.spacegroup_str() << '\n';
   } else {
-    out << "ERROR. Different space groups in merged and unmerged files:\n"
+    GroupOps gops1 = ui.spacegroup->operations();
+    GroupOps gops2 = mi.spacegroup->operations();
+    if (!gops1.has_same_centring(gops2) || !gops1.has_same_rotations(gops2))
+      ok = false;
+    out << (ok ? "WARNING" : "ERROR")
+        << ". Different space groups in merged and unmerged files:\n"
         << mi.spacegroup_str() << " and " << ui.spacegroup_str() << '\n';
-    out << "(in the future, this app may recognize compatible space groups\n"
-           "and reindex unmerged data if needed; for now, it's on you)\n";
-    ok = false;
+    if (!ok)
+      out << "(in the future, this app may recognize compatible space groups\n"
+             "and reindex unmerged data if needed; for now, it's on you)\n";
   }
-  if (ui.unit_cell.approx(mi.unit_cell, 0.02)) {
+
+  auto eq = [](double x, double y, double rmsd) { return std::fabs(x - y) < rmsd + 0.02; };
+  if(eq(mi.unit_cell.a,     ui.unit_cell.a,     ui.unit_cell_rmsd[0]) &&
+     eq(mi.unit_cell.b,     ui.unit_cell.b,     ui.unit_cell_rmsd[1]) &&
+     eq(mi.unit_cell.c,     ui.unit_cell.c,     ui.unit_cell_rmsd[2]) &&
+     eq(mi.unit_cell.alpha, ui.unit_cell.alpha, ui.unit_cell_rmsd[3]) &&
+     eq(mi.unit_cell.beta,  ui.unit_cell.beta,  ui.unit_cell_rmsd[4]) &&
+     eq(mi.unit_cell.gamma, ui.unit_cell.gamma, ui.unit_cell_rmsd[5])) {
     out << "The same unit cell parameters.\n";
   } else {
     const UnitCell& mc = mi.unit_cell;
@@ -448,13 +494,10 @@ inline bool validate_merged_intensities(Intensities& mi, Intensities& ui,
   out << "Merged reflections: " << mi_size1 << ' ' << mi.type_str()
       << " (" << mi.data.size() << " w/o sysabs)\n";
 
-  if (!scale_aniso_b.all_zero()) {
+  if (mi.staraniso_b.ok()) {
     out << "Taking into account the anisotropy tensor that was used for scaling.\n";
-    for (Intensities::Refl& refl : ui.data) {
-      Vec3 hkl(refl.hkl[0], refl.hkl[1], refl.hkl[2]);
-      Vec3 s = ui.unit_cell.frac.mat.multiply(hkl);
-      refl.value *= std::exp(0.5 * scale_aniso_b.r_u_r(s));
-    }
+    for (Intensities::Refl& refl : ui.data)
+      refl.value *= mi.staraniso_b.scale(refl.hkl, ui.unit_cell);
   }
 
   // first pass - calculate CC and scale
@@ -472,64 +515,136 @@ inline bool validate_merged_intensities(Intensities& mi, Intensities& ui,
   int missing_count = 0;
   auto r1 = ui.data.begin();
   auto r2 = mi.data.begin();
+  auto refln_str = [](const Intensities::Refl& r) {
+    return r.intensity_label() + std::string(" ") + miller_str(r.hkl);
+  };
   while (r1 != ui.data.end() && r2 != mi.data.end()) {
-    if (r1->hkl == r2->hkl) {
-      double value1 = scale * r1->value;
-      double sigma1 = scale * r1->sigma; // is this approximately correct
-      double sq_value_max = std::max(sq(value1), sq(r2->value));
-      double sq_diff = sq(value1 - r2->value);
-      double weighted_sq_diff = sq_diff / (sq(sigma1) + sq(r2->sigma));
-      // XDS files have 4 significant digits. Using accuracy 5x the precision.
-      // Just in case, we ignore near-zero values.
-      if (sq_value_max > 1e-4 && sq_diff > sq(0.005) * sq_value_max) {
-        if (differ_count == 0) {
-          out << "First difference: " << miller_str(r1->hkl)
-              << ' ' << value1 << " vs " << r2->value << '\n';
-        }
-        ++differ_count;
-        if (weighted_sq_diff > max_weighted_sq_diff) {
-          max_weighted_sq_diff = weighted_sq_diff;
-          max_diff_r1 = &*r1;
-          max_diff_r2 = &*r2;
+    if (r1->hkl == r2->hkl && r1->isign == r2->isign) {
+      if (!relaxed_check) {
+        double value1 = scale * r1->value;
+        double sigma1 = scale * r1->sigma; // is this approximately correct
+        double sq_max = std::max(sq(value1), sq(r2->value));
+        double sq_diff = sq(value1 - r2->value);
+        // Intensities may happen to be rounded to two decimal places,
+        // so if the absolute difference is <0.01 it's OK.
+        if (sq_diff > 1e-4 && sq_diff > sq(max_diff) * sq_max) {
+          if (differ_count == 0) {
+            out << "First difference: " << r1->hkl_label()
+                << ' ' << value1 << " vs " << r2->value << '\n';
+          }
+          ++differ_count;
+          double weighted_sq_diff = sq_diff / (sq(sigma1) + sq(r2->sigma));
+          if (weighted_sq_diff > max_weighted_sq_diff) {
+            max_weighted_sq_diff = weighted_sq_diff;
+            max_diff_r1 = &*r1;
+            max_diff_r2 = &*r2;
+          }
         }
       }
       ++r1;
       ++r2;
-    } else if (std::tie(r1->hkl[0], r1->hkl[1], r1->hkl[2]) <
-               std::tie(r2->hkl[0], r2->hkl[1], r2->hkl[2])) {
+    } else if (*r1 < *r2) {
       ++r1;
     } else {
       if (missing_count == 0)
-        out << "First missing reflection in unmerged data: " << miller_str(r1->hkl) << '\n';
+        out << "First missing reflection in unmerged data: " << refln_str(*r1) << '\n';
       ++missing_count;
       ++r2;
     }
   }
 
   if (differ_count != 0) {
-    const Miller& hkl = max_diff_r1->hkl;
-    out << "Most significant difference: " << miller_str(hkl) << ' '
+    out << "Most significant difference: " << refln_str(*max_diff_r1) << ' '
         << scale * max_diff_r1->value << " vs " << max_diff_r2->value << '\n';
-    out << differ_count << " of " << corr.n << " intensities differ too much (by >0.5%).\n";
-    ok = false;
+    out << differ_count << " of " << corr.n << " intensities differ too much (by >"
+        << to_str(max_diff * 100) << "%).\n";
+    if (differ_count >= 0.001 * corr.n)
+      ok = false;
+    else
+      out << "(less than 0.1% of all intensities -"
+          << " probably outlier rejection during merging)\n";
   }
   if (missing_count != 0) {
     out << missing_count << " out of " << mi.data.size()
         << " reflections in the merged file not found in unmerged data\n";
     ok = false;
   }
-  if (differ_count == 0 && missing_count == 0) {
-    out << "Intensities match.";
-    if (!ok)
-      out << " But other problems were found (see above).";
-    out << '\n';
-  } else {
-    out << "ERROR. Intensities do not match.\n";
+  if (!relaxed_check) {
+    if (differ_count == 0 && missing_count == 0) {
+      out << "Intensities match.";
+      if (!ok)
+        out << " But other problems were found (see above).";
+      out << '\n';
+    } else {
+      out << (ok ? "OK. Intensities almost match.\n"
+                 : "ERROR. Intensities do not match.\n");
+    }
   }
   return ok;
 }
 
-inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& os) {
+#define WRITE(...) os.write(buf, gf_snprintf(buf, 255, __VA_ARGS__))
+
+// Reorder eigenvalues and change signs of eigenvectors in the STARANISO way.
+// It minimises the rotation angle from the basis vectors to the eigenvectors,
+// which is equivalent to maximising the trace of the eigenvector matrix.
+inline void reorder_staraniso_eigensystem(Mat33& vectors, double (&values)[3]) {
+  const int8_t permut[6][3] = {{0,1,2}, {1,2,0}, {2,0,1}, {1,0,2}, {2,1,0}, {0,2,1}};
+  const int8_t signs[8][3] = {{1,1,1}, {1,-1,-1}, {-1,1,-1}, {-1,-1,1},
+                              {-1,-1,-1}, {-1,1,1}, {1,-1,1}, {1,1,-1}};
+  double max_trace = -INFINITY;
+  int permut_pos = 0, sign_pos = 0;
+  bool det_neg = std::signbit(vectors.determinant());
+  for (int i = 0; i < 6; ++i) {
+    int jbase = det_neg == (i > 2) ? 0 : 4;
+    const int8_t (&p)[3] = permut[i];
+    for (int j = jbase; j < jbase+4; ++j) {
+      double trace = 0.;
+      for (int k = 0; k < 3; ++k)
+        trace += signs[j][k] * vectors[k][p[k]];
+      if (trace > max_trace) {
+        max_trace = trace;
+        permut_pos = i;
+        sign_pos = j;
+      }
+    }
+  }
+  const int8_t (&p)[3] = permut[permut_pos];
+  double tmp[3];
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j)
+      tmp[j] = signs[sign_pos][j] * vectors.a[i][p[j]];
+    std::memcpy(vectors.a[i], tmp, sizeof(tmp));
+  }
+  for (int j = 0; j < 3; ++j)
+    tmp[j] = values[p[j]];
+  std::memcpy(values, tmp, sizeof(tmp));
+}
+
+inline void MtzToCif::write_staraniso_b_in_mmcif(const SMat33<double>& b,
+                                                 char* buf, std::ostream& os) {
+  double eigenvalues[3];
+  Mat33 eigenvectors = eigen_decomposition(b, eigenvalues);
+  reorder_staraniso_eigensystem(eigenvectors, eigenvalues);
+  // three mandatory items in _reflns
+  os << "\n_reflns.entry_id " << entry_id
+     << "\n_reflns.pdbx_ordinal 1"
+        "\n_reflns.pdbx_diffrn_id 1";
+  const char* prefix = "\n_reflns.pdbx_aniso_B_tensor_eigen";
+  for (int i = 0; i < 3; ++i) {
+    // According to the mmCIF spec eigenvalues must be positive.
+    // But we don't have the original eigenvalues, we have values after
+    // subtracting the smallest eigenvalue. So at least one of them is 0.
+    // As a workaround, add an arbitrary number to all eigenvalues.
+    WRITE("%svalue_%d %.5g", prefix, i+1, eigenvalues[i] + 1.0);
+    for (int j = 0; j < 3; ++j)
+      WRITE("%svector_%d_ortho[%d] %.5g", prefix, i+1, j+1, eigenvectors[j][i]);
+  }
+  os << '\n';
+}
+
+inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2,
+                                SMat33<double>* staraniso_b, std::ostream& os) {
   if (mtz2 && mtz.is_merged() == mtz2->is_merged())
     fail("If two MTZ files are given, one must be merged and one unmerged,\n"
          "got two ", mtz.is_merged() ? "merged" : "unmerged");
@@ -537,7 +652,6 @@ inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& o
   const Mtz* unmerged = mtz.is_merged() ? mtz2 : &mtz;
 
   char buf[256];
-#define WRITE(...) os.write(buf, gf_snprintf(buf, 255, __VA_ARGS__))
   if (with_comments) {
     os << "# Converted by gemmi-mtz2cif " GEMMI_VERSION "\n";
     for (const Mtz* m : {merged, unmerged})
@@ -554,45 +668,71 @@ inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& o
 
   os << "\n\n_entry.id " << entry_id << "\n\n";
 
-  write_special_marker_if_requested(os);
+  // If we have user-provided spec file, we don't take responsibility
+  // for the result. The spec in such case (write_special_marker_for_pdb==true)
+  // is used for merged data only, so we can add the marker in unmerged block.
+  if (spec_lines.empty() || !merged)
+    write_special_marker_if_requested(os, merged);
+
+  std::vector<Trans> recipe;
+  if (merged)
+    prepare_recipe(*merged, recipe);
 
   if (unmerged) {
-    os << "_exptl_crystal.id 1\n\n";
-    bool scaled = (unmerged->column_with_label("SCALEUSED") != nullptr);
-    gather_sweep_data(*unmerged);
+    bool ok = gather_sweep_data(*unmerged);
+    std::set<const Mtz::Dataset*> used_datasets;
+    std::vector<std::string> crystal_names;
+    // Prepare used_datasets, crystal_names and set SweepData::crystal_id.
+    for (SweepData& sweep : sweeps)
+      if (sweep.dataset) {
+        used_datasets.insert(sweep.dataset);
+        if (ok) {
+          auto it = std::find(crystal_names.begin(), crystal_names.end(),
+                              sweep.dataset->crystal_name);
+          sweep.crystal_id = int(it - crystal_names.begin()) + 1;
+          if (it == crystal_names.end())
+            crystal_names.push_back(sweep.dataset->crystal_name);
+        }
+      }
 
-    os << "loop_\n_diffrn.id\n_diffrn.crystal_id\n_diffrn.details\n";
+    if (crystal_names.empty()) {
+      os << "_exptl_crystal.id 1\n";
+    } else {
+      os << "loop_\n_exptl_crystal.id\n";
+      for (size_t i = 0; i < crystal_names.size(); ++i)
+        os << i+1 << " # " << crystal_names[i] << '\n';
+    }
+
+    bool scaled = (unmerged->column_with_label("SCALEUSED") != nullptr);
+
+    os << "\nloop_\n"
+          "_diffrn.id\n_diffrn.crystal_id\n_diffrn.details\n";
     for (const SweepData& sweep : sweeps) {
-      os << sweep.id << " 1 '";
+      os << sweep.id << ' ' << sweep.crystal_id << " '";
       if (scaled)
         os << "scaled ";
       os << "unmerged data'\n";
     }
-    os << '\n';
 
-    os << "loop_\n"
+    os << "\nloop_\n"
           "_diffrn_measurement.diffrn_id\n"
           "_diffrn_measurement.details\n";
     for (const SweepData& sweep : sweeps)
       os << sweep.id << " '" << sweep.batch_count << " frames'\n";
-    os << '\n';
 
-    os << "loop_\n"
+    os << "\nloop_\n"
           "_diffrn_radiation.diffrn_id\n"
           "_diffrn_radiation.wavelength_id\n";
-    std::set<const Mtz::Dataset*> used_datasets;
     for (const SweepData& sweep : sweeps) {
       os << sweep.id << ' ';
-      if (sweep.dataset) {
-        used_datasets.insert(sweep.dataset);
-        os << sweep.dataset->id << '\n';
-      } else {
-        os << "?\n";
-      }
+      if (sweep.dataset)
+        os << sweep.dataset->id;
+      else
+        os << '?';
+      os << '\n';
     }
-    os << '\n';
 
-    os << "loop_\n"
+    os << "\nloop_\n"
           "_diffrn_radiation_wavelength.id\n"
           "_diffrn_radiation_wavelength.wavelength\n";
     for (const Mtz::Dataset* ds : used_datasets)
@@ -622,12 +762,10 @@ inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& o
       }
       os << '\n';
     }
-  } else {
+  } else {  // not unmerged, i.e. only merged data
     double w = std::isnan(wavelength) ? get_wavelength(mtz, recipe) : wavelength;
     if (w > 0.)
-      os << "_diffrn_radiation.diffrn_id 1\n"
-         << "_diffrn_radiation.wavelength_id 1\n"
-         << "_diffrn_radiation_wavelength.id 1\n"
+      os << "_diffrn_radiation_wavelength.id 1\n"
          << "_diffrn_radiation_wavelength.wavelength " << to_str(w) << "\n\n";
   }
 
@@ -639,17 +777,25 @@ inline void MtzToCif::write_cif(const Mtz& mtz, const Mtz* mtz2, std::ostream& o
     write_cell_and_symmetry(cell, rmsds, mtz.spacegroup, buf, os);
   }
 
+  if (write_staraniso_tensor && staraniso_b)
+    write_staraniso_b_in_mmcif(*staraniso_b, buf, os);
+
   if (merged)
-    write_main_loop(*merged, buf, os);
-  if (unmerged)
-    write_main_loop(*unmerged, buf, os);
+    write_main_loop(*merged, recipe, buf, os);
+  if (unmerged) {
+    // if --depo flag is used, the spec file is for the merged data only
+    if (write_special_marker_for_pdb)
+      spec_lines.clear();
+    prepare_recipe(*unmerged, recipe);
+    write_main_loop(*unmerged, recipe, buf, os);
+  }
 }
 
-inline void MtzToCif::write_main_loop(const Mtz& mtz, char* buf, std::ostream& os) {
-  prepare_recipe(mtz);
+inline void MtzToCif::write_main_loop(const Mtz& mtz, const std::vector<Trans>& recipe,
+                                      char* buf, std::ostream& os) {
   // prepare indices
   std::vector<int> value_indices;  // used for --skip_empty
-  std::vector<int> sigma_indices;  // used for status 'x'
+  std::vector<int> sigma_indices;  // used for status 'x' and --skip-negative-sigi
   for (const Trans& tr : recipe) {
     if (tr.col_idx < 0)
       continue;
@@ -659,7 +805,7 @@ inline void MtzToCif::write_main_loop(const Mtz& mtz, char* buf, std::ostream& o
                                   : is_in_list(col.label, skip_empty_cols))
         value_indices.push_back(tr.col_idx);
     }
-    if (col.type != 'Q' && col.type != 'L' && col.type != 'M')
+    if (col.type == 'Q' || col.type == 'L' || col.type == 'M')
       sigma_indices.push_back(tr.col_idx);
   }
 
@@ -689,7 +835,7 @@ inline void MtzToCif::write_main_loop(const Mtz& mtz, char* buf, std::ostream& o
   if (free_flag_value < 0) {
     // CCP4 uses flags 0,...N-1 (usually N=20), with default free set 0
     // PHENIX uses 0/1 flags with free set 1
-    if (const Trans* tr_status = get_status_translation()) {
+    if (const Trans* tr_status = get_status_translation(recipe)) {
       int count = 0;
       for (float val : mtz.columns[tr_status->col_idx])
         if (val == 0.f)
@@ -722,6 +868,10 @@ inline void MtzToCif::write_main_loop(const Mtz& mtz, char* buf, std::ostream& o
     int batch_number = 0;
     SweepData* sweep = nullptr;
     if (unmerged) {
+      if (skip_negative_sigi &&
+          std::any_of(sigma_indices.begin(), sigma_indices.end(),
+                      [&](int n) { return row[n] < 0; }))
+        continue;
       if (batch_idx == -1)
         fail("BATCH column not found");
       batch_number = (int) row[batch_idx];
@@ -789,11 +939,11 @@ inline void MtzToCif::write_cif_from_xds(const XdsAscii& xds, std::ostream& os) 
   os << "data_" << (block_name ? block_name : "xds");
   os << "\n\n_entry.id " << entry_id << "\n\n";
 
-  write_special_marker_if_requested(os);
+  write_special_marker_if_requested(os, false);
 
-  os << "_exptl_crystal.id 1\n\n";
+  os << "_exptl_crystal.id 1\n";
 
-  os << "loop_\n_diffrn.id\n_diffrn.crystal_id\n_diffrn.details\n";
+  os << "\nloop_\n_diffrn.id\n_diffrn.crystal_id\n_diffrn.details\n";
   for (const XdsAscii::Iset& iset : xds.isets)
     // We could write iset.input_info as details, but then local paths
     // could end up in the deposition.
@@ -866,7 +1016,7 @@ inline void MtzToCif::write_cif_from_xds(const XdsAscii& xds, std::ostream& os) 
   os << "\n_diffrn_refln.pdbx_image_id\n";
   int idx = 0;
   for (const XdsAscii::Refl& refl : xds.data) {
-    if (refl.sigma < 0)  // misfit
+    if (refl.sigma < 0 && skip_negative_sigi)  // misfit
       continue;
     char* ptr = buf;
     ptr += gf_snprintf(ptr, 128, "%d %d %d %d %d %g %.5g ",
@@ -884,29 +1034,29 @@ inline void MtzToCif::write_cif_from_xds(const XdsAscii& xds, std::ostream& os) 
 
 inline void MtzToCif::write_cell_and_symmetry(const UnitCell& cell, double* rmsds,
                                               const SpaceGroup* sg,
-                                              char* buf, std::ostream& os) {
+                                              char* buf, std::ostream& os) const {
   os << "_cell.entry_id " << entry_id << '\n';
-  WRITE("_cell.length_a    %8.3f\n", cell.a);
+  WRITE("_cell.length_a    %8.4f\n", cell.a);
   if (rmsds && rmsds[0] != 0.)
     WRITE("_cell.length_a_esd %7.3f\n", rmsds[0]);
-  WRITE("_cell.length_b    %8.3f\n", cell.b);
+  WRITE("_cell.length_b    %8.4f\n", cell.b);
   if (rmsds && rmsds[1] != 0.)
     WRITE("_cell.length_b_esd %7.3f\n", rmsds[1]);
-  WRITE("_cell.length_c    %8.3f\n", cell.c);
+  WRITE("_cell.length_c    %8.4f\n", cell.c);
   if (rmsds && rmsds[2] != 0.)
     WRITE("_cell.length_c_esd %7.3f\n", rmsds[2]);
-  WRITE("_cell.angle_alpha %8.3f\n", cell.alpha);
+  WRITE("_cell.angle_alpha %8.4f\n", cell.alpha);
   if (rmsds && rmsds[3] != 0.)
-    WRITE("_cell.length_alpha_esd %7.3f\n", rmsds[3]);
-  WRITE("_cell.angle_beta  %8.3f\n", cell.beta);
+    WRITE("_cell.angle_alpha_esd %7.3f\n", rmsds[3]);
+  WRITE("_cell.angle_beta  %8.4f\n", cell.beta);
   if (rmsds && rmsds[4] != 0.)
-    WRITE("_cell.length_beta_esd %8.3f\n", rmsds[4]);
-  WRITE("_cell.angle_gamma %8.3f\n", cell.gamma);
+    WRITE("_cell.angle_beta_esd %8.3f\n", rmsds[4]);
+  WRITE("_cell.angle_gamma %8.4f\n", cell.gamma);
   if (rmsds && rmsds[5] != 0.)
-    WRITE("_cell.length_gamma_esd %7.3f\n", rmsds[5]);
+    WRITE("_cell.angle_gamma_esd %7.3f\n", rmsds[5]);
   if (sg) {
     os << "\n_symmetry.entry_id " << entry_id << "\n"
-          "_symmetry.space_group_name_H-M '" << sg->hm << "'\n"
+          "_symmetry.space_group_name_H-M '" << sg->pdb_name() << "'\n"
           "_symmetry.Int_Tables_number " << sg->number << '\n';
     // could write _symmetry_equiv.pos_as_xyz, but would it be useful?
   }

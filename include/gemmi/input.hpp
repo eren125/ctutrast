@@ -7,6 +7,7 @@
 #define GEMMI_INPUT_HPP_
 
 #include <cassert>
+#include <cstddef> // for ptrdiff_t
 #include <cstdio>  // for FILE, fseek, fread
 #include <cstdlib> // for malloc, realloc
 #include <cstring> // for memchr
@@ -24,7 +25,33 @@ struct FileStream {
   int getc() { return std::fgetc(f); }
   // used in ccp4.hpp
   bool read(void* buf, size_t len) { return std::fread(buf, len, 1, f) == 1; }
-  bool seek(long offset) { return std::fseek(f, offset, SEEK_SET) == 0; }
+
+  // used in mtz.hpp
+  std::string read_rest() {
+    std::string ret;
+    int c = std::fgetc(f);
+    if (c != EOF) {
+      ret += (char)c;
+      char buf[512];
+      for (;;) {
+        size_t n = std::fread(buf, 1, sizeof(buf), f);
+        ret.append(buf, n);
+        if (n != sizeof(buf))
+          break;
+      }
+    }
+    return ret;
+  }
+
+  bool seek(std::ptrdiff_t offset) {
+#if defined(_MSC_VER)
+    return _fseeki64(f, offset, SEEK_SET) == 0;
+#elif defined(__MINGW32__)
+    return fseeko(f, (_off_t)offset, SEEK_SET) == 0;
+#else
+    return std::fseek(f, (long)offset, SEEK_SET) == 0;
+#endif
+  }
 };
 
 struct MemoryStream {
@@ -54,7 +81,13 @@ struct MemoryStream {
     return true;
   }
 
-  int seek(long offset) {
+  std::string read_rest() {
+    const char* last = cur;
+    cur = end;
+    return std::string(last, end);
+  }
+
+  int seek(std::ptrdiff_t offset) {
     cur = start + offset;
     return cur < end;
   }
@@ -77,13 +110,22 @@ public:
   size_t size() const { return size_; }
   void set_size(size_t n) { size_ = n; }
 
+  MemoryStream stream() const { return MemoryStream(data(), size()); }
+
   void resize(size_t n) {
     char* new_ptr = (char*) std::realloc(ptr_.get(), n);
-    if (!new_ptr)
+    if (!new_ptr && n != 0)
       fail("Out of memory.");
-    ptr_.release();
+    (void) ptr_.release();
     ptr_.reset(new_ptr);
     size_ = n;
+  }
+
+  // Remove first n bytes making space for more text at the returned position.
+  char* roll(size_t n) {
+    assert(n <= size());
+    std::memmove(data(), data() + n, n);
+    return data() + n;
   }
 };
 
@@ -103,7 +145,7 @@ public:
   bool is_compressed() const { return false; }
   FileStream get_uncompressing_stream() const { assert(0); unreachable(); }
   // for reading (uncompressing into memory) the whole file at once
-  CharArray uncompress_into_buffer() { return {}; }
+  CharArray uncompress_into_buffer(size_t=0) { return {}; }
 
 private:
   std::string path_;

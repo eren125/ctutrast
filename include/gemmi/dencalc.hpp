@@ -65,13 +65,19 @@ inline double it92_radius_approx(double b) {
   return (8.5 + 0.075 * b) / (2.4 + 0.0045 * b);
 }
 
-inline double get_minimum_b_iso(const Model& model) {
+inline double get_minimum_b(const Model& model) {
   double b_min = 1000.;
   for (const Chain& chain : model.chains)
     for (const Residue& residue : chain.residues)
-      for (const Atom& atom : residue.atoms)
-        if (atom.b_iso < b_min)
-          b_min = atom.b_iso;
+      for (const Atom& atom : residue.atoms) {
+        double b = atom.b_iso;
+        if (!atom.aniso.nonzero()) {
+          std::array<double,3> eig = atom.aniso.calculate_eigenvalues();
+          b = std::min(std::min(eig[0], eig[1]), eig[2]);
+        }
+        if (b < b_min)
+          b_min = b;
+      }
   return b_min;
 }
 
@@ -97,8 +103,11 @@ struct DensityCalculator {
   double requested_grid_spacing() const { return d_min / (2 * rate); }
 
   void set_refmac_compatible_blur(const Model& model) {
-    double b_min = get_minimum_b_iso(model);
-    blur = std::max(u_to_b() / 1.1 * sq(requested_grid_spacing()) - b_min, 0.);
+    double spacing = requested_grid_spacing();
+    if (spacing <= 0)
+      spacing = grid.min_spacing();
+    double b_min = get_minimum_b(model);
+    blur = std::max(u_to_b() / 1.1 * sq(spacing) - b_min, 0.);
   }
 
   // pre: check if Table::has(atom.element)
@@ -115,12 +124,10 @@ struct DensityCalculator {
 
   template<int N>
   double estimate_radius(const ExpSum<N, coef_type>& precal, double b) const {
-    if (N == 1) {
+    if (N == 1)
       return std::sqrt(std::log(cutoff / std::abs(precal.a[0])) / precal.b[0]);
-    } else {
-      double x1 = it92_radius_approx(b);
-      return determine_cutoff_radius(x1, precal, cutoff);
-    }
+    double x1 = it92_radius_approx(b);
+    return determine_cutoff_radius(x1, precal, cutoff);
   }
 
   template<typename Coef>
@@ -131,7 +138,7 @@ struct DensityCalculator {
       double b = atom.b_iso + blur;
       auto precal = coef.precalculate_density_iso(b, addend);
       double radius = estimate_radius(precal, b);
-      grid.use_points_around(fpos, radius, [&](Real& point, double r2) {
+      grid.template use_points_around<true>(fpos, radius, [&](Real& point, double r2) {
           point += Real(atom.occ * precal.calculate((Real)r2));
       }, /*fail_on_too_large_radius=*/false);
     } else {
@@ -145,8 +152,8 @@ struct DensityCalculator {
       int du = (int) std::ceil(radius / grid.spacing[0]);
       int dv = (int) std::ceil(radius / grid.spacing[1]);
       int dw = (int) std::ceil(radius / grid.spacing[2]);
-      grid.use_points_in_box(fpos, du, dv, dw,
-                             [&](Real& point, const Position& delta) {
+      grid.template use_points_in_box<true>(fpos, du, dv, dw,
+                             [&](Real& point, const Position& delta, int, int, int) {
         if (delta.length_sq() < radius * radius)
           point += Real(atom.occ * precal.calculate(delta));
       }, false);
@@ -155,10 +162,17 @@ struct DensityCalculator {
 
   void initialize_grid() {
     grid.data.clear();
-    grid.set_size_from_spacing(requested_grid_spacing(), true);
+    double spacing = requested_grid_spacing();
+    if (spacing > 0)
+      grid.set_size_from_spacing(spacing, GridSizeRounding::Up);
+    else if (grid.point_count() > 0)
+      grid.fill(0.);
+    else
+      fail("initialize_grid(): d_min is not set");
   }
 
   void add_model_density_to_grid(const Model& model) {
+    grid.check_not_empty();
     for (const Chain& chain : model.chains)
       for (const Residue& res : chain.residues)
         for (const Atom& atom : res.atoms)

@@ -12,8 +12,9 @@
 #include <initializer_list>
 #include <memory>    // for unique_ptr
 #include <string>
-#include "fail.hpp"  // for fail
+#include "fail.hpp"  // for fail, sys_fail
 #include "util.hpp"  // for to_lower
+#include "input.hpp"  // for CharArray
 
 #if defined(_WIN32) && !defined(GEMMI_USE_FOPEN)
 #include "utf.hpp"
@@ -47,8 +48,8 @@ inline fileptr_t file_open(const char* path, const char* mode) {
 #else
   if ((file = std::fopen(path, mode)) == nullptr)
 #endif
-    fail(std::string("Failed to open file") +
-         (*mode == 'w' ? " for writing: " : ": ") + path);
+    sys_fail(std::string("Failed to open ") + path +
+             (*mode == 'w' ? " for writing" : ""));
   return fileptr_t(file, &std::fclose);
 }
 
@@ -62,12 +63,12 @@ inline fileptr_t file_open_or(const char* path, const char* mode,
 
 inline std::size_t file_size(std::FILE* f, const std::string& path) {
   if (std::fseek(f, 0, SEEK_END) != 0)
-    fail(path + ": fseek failed");
+    sys_fail(path + ": fseek failed");
   long length = std::ftell(f);
   if (length < 0)
-    fail(path + ": ftell failed");
+    sys_fail(path + ": ftell failed");
   if (std::fseek(f, 0, SEEK_SET) != 0)
-    fail(path + ": fseek failed");
+    sys_fail(path + ": fseek failed");
   return length;
 }
 
@@ -78,16 +79,26 @@ inline bool is_pdb_code(const std::string& str) {
 
 // Call it after checking the code with gemmi::is_pdb_code(code).
 // The convention for $PDB_DIR is the same as in BioJava, see the docs.
-// type is the requested file type: 'M' for mmCIF or 'P' for PDB.
+// type is the requested file type: 'M' for mmCIF or 'P' for PDB, 'S' for SF-mmCIF.
 inline std::string expand_pdb_code_to_path(const std::string& code, char type) {
   std::string path;
   if (const char* pdb_dir = std::getenv("PDB_DIR")) {
+    int n = 0;
+    if (type == 'M')
+      n = 1;
+    else if (type == 'S')
+      n = 2;
     std::string lc = to_lower(code);
     path = pdb_dir;
     path += "/structures/divided/";
-    path += (type == 'M' ? "mmCIF/" : "pdb/");
-    path += lc.substr(1, 2) + "/";
-    path += (type == 'M' ?  lc + ".cif.gz" : "pdb" + lc + ".ent.gz");
+    const char* dir[] = {"pdb/", "mmCIF/", "structure_factors/"};
+    path += dir[n];
+    path += lc.substr(1, 2);
+    const char* prefix[] = {"/pdb", "/", "/r"};
+    path += prefix[n];
+    path += lc;
+    const char* suffix[] = {".ent.gz", ".cif.gz", "sf.ent.gz"};
+    path += suffix[n];
   }
   return path;
 }
@@ -120,6 +131,47 @@ inline void swap_four_bytes(void* start) {
   char* bytes = static_cast<char*>(start);
   std::swap(bytes[0], bytes[3]);
   std::swap(bytes[1], bytes[2]);
+}
+
+inline void swap_eight_bytes(void* start) {
+  char* bytes = static_cast<char*>(start);
+  std::swap(bytes[0], bytes[7]);
+  std::swap(bytes[1], bytes[6]);
+  std::swap(bytes[2], bytes[5]);
+  std::swap(bytes[3], bytes[4]);
+}
+
+// reading file into a memory buffer
+inline CharArray read_file_into_buffer(const std::string& path) {
+  fileptr_t f = file_open(path.c_str(), "rb");
+  size_t size = file_size(f.get(), path);
+  CharArray buffer(size);
+  if (std::fread(buffer.data(), size, 1, f.get()) != 1)
+    sys_fail(path + ": fread failed");
+  return buffer;
+}
+
+inline CharArray read_stdin_into_buffer() {
+  size_t n = 0;
+  CharArray buffer(16 * 1024);
+  for (;;) {
+    n += std::fread(buffer.data() + n, 1, buffer.size() - n, stdin);
+    if (n != buffer.size()) {
+      buffer.set_size(n);
+      break;
+    }
+    buffer.resize(2*n);
+  }
+  return buffer;
+}
+
+template<typename T>
+inline CharArray read_into_buffer(T&& input) {
+  if (input.is_stdin())
+    return read_stdin_into_buffer();
+  if (input.is_compressed())
+    return input.uncompress_into_buffer();
+  return read_file_into_buffer(input.path());
 }
 
 } // namespace gemmi

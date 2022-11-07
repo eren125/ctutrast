@@ -8,9 +8,9 @@
 #ifndef GEMMI_SYMMETRY_HPP_
 #define GEMMI_SYMMETRY_HPP_
 
-#include <cstdint>
-#include <cstdlib>    // for strtol
-#include <cstring>    // for memchr, strchr, strlen
+#include <cstdlib>    // for strtol, abs
+#include <cstring>    // for memchr, strchr
+#include <cmath>      // for fabs
 #include <array>
 #include <algorithm>  // for count, sort, remove
 #include <functional> // for hash
@@ -58,7 +58,7 @@ struct Op {
   Rot rot;
   Tran tran;
 
-  std::string triplet() const;
+  std::string triplet(char style='x') const;
 
   Op inverse() const;
 
@@ -89,13 +89,28 @@ struct Op {
              -rot[2][0], -rot[2][1], -rot[2][2] };
   }
 
-  Op negated() { return { negated_rot(), { -tran[0], -tran[1], -tran[2] } }; }
+  Rot transposed_rot() const {
+    return { rot[0][0], rot[1][0], rot[2][0],
+             rot[0][1], rot[1][1], rot[2][1],
+             rot[0][2], rot[1][2], rot[2][2] };
+  }
 
   // DEN^3 for rotation, -DEN^3 for rotoinversion
   int det_rot() const {
     return rot[0][0] * (rot[1][1] * rot[2][2] - rot[1][2] * rot[2][1])
          - rot[0][1] * (rot[1][0] * rot[2][2] - rot[1][2] * rot[2][0])
          + rot[0][2] * (rot[1][0] * rot[2][1] - rot[1][1] * rot[2][0]);
+  }
+
+  // Rotation-part type based on Table 1 in RWGK, Acta Cryst. A55, 383 (1999)
+  int rot_type() const {
+    int det = det_rot();
+    int tr_den = rot[0][0] + rot[1][1] + rot[2][2];
+    int tr = tr_den / DEN;
+    const int table[] = {0, 0, 2, 3, 4, 6, 1};
+    if (std::abs(det) == DEN * DEN * DEN && tr * DEN == tr_den && std::abs(tr) <= 3)
+      return det > 0 ? table[3 + tr] : -table[3 - tr];
+    return 0;
   }
 
   Op combine(const Op& b) const {
@@ -197,8 +212,39 @@ inline Op Op::inverse() const {
   return inv;
 }
 
+// inverse of Op::float_seitz()
+inline Op seitz_to_op(const std::array<std::array<double,4>, 4>& t) {
+  static_assert(Op::DEN == 24, "");
+  auto check_round = [](double d) {
+    double r = std::round(d * Op::DEN);
+    if (std::fabs(r - d * Op::DEN) > 0.05)
+      fail("all numbers in Seitz matrix must be equal Z/24");
+    return static_cast<int>(r);
+  };
+  Op op;
+  if (std::fabs(t[3][0]) + std::fabs(t[3][1]) + std::fabs(t[3][2]) +
+      std::fabs(t[3][3] - 1) > 1e-3)
+    fail("the last row in Seitz matrix must be [0 0 0 1]");
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j)
+      op.rot[i][j] = check_round(t[i][j]);
+    op.tran[i] = check_round(t[i][3]);
+  }
+  return op;
+}
+
 
 // TRIPLET -> OP
+
+inline int interpret_miller_character(char c, const std::string& s) {
+  static const signed char values[] =
+    //a  b  c  d  e  f  g  h  i  j  k  l  m  n  o  p  q  r  s  t  u  v  w  x  y  z
+    { 1, 2, 3, 0, 0, 0, 0, 1, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3 };
+  size_t idx = size_t((c | 0x20) - 'a');  // "|0x20" = to lower
+  if (idx >= sizeof(values) || values[idx] == 0)
+    fail("unexpected character '", c, "' in: ", s);
+  return values[idx] - 1;
+}
 
 inline std::array<int, 4> parse_triplet_part(const std::string& s) {
   std::array<int, 4> r = { 0, 0, 0, 0 };
@@ -211,30 +257,38 @@ inline std::array<int, 4> parse_triplet_part(const std::string& s) {
     }
     if (num == 0)
       fail("wrong or unsupported triplet format: " + s);
-    bool is_shift = false;
+    int r_idx;
+    int den = 1;
     if (*c >= '0' && *c <= '9') {
+      // syntax examples in this branch: "1", "-1/2", "+2*x", "1/2 * b"
       char* endptr;
       num *= std::strtol(c, &endptr, 10);
-      if (*endptr == '/') {
-        int den = std::strtol(endptr + 1, &endptr, 10);
-        if (den < 1 || Op::DEN % den != 0)
-          fail("Wrong denominator " + std::to_string(den) + " in: " + s);
-        num /= den;
+      if (*endptr == '/')
+        den = std::strtol(endptr + 1, &endptr, 10);
+      if (*endptr == '*') {
+        c = impl::skip_blank(endptr + 1);
+        r_idx = interpret_miller_character(*c, s);
+        ++c;
+      } else {
+        c = endptr;
+        r_idx = 3;
       }
-      is_shift = (*endptr != '*');
-      c = (is_shift ? endptr - 1 : impl::skip_blank(endptr + 1));
+    } else {
+      // syntax examples in this branch: "x", "+a", "-k/3"
+      r_idx = interpret_miller_character(*c, s);
+      c = impl::skip_blank(++c);
+      if (*c == '/') {
+        char* endptr;
+        den = std::strtol(c + 1, &endptr, 10);
+        c = endptr;
+      }
     }
-    if (is_shift)
-      r[3] += num;
-    else if (std::memchr("xXhHaA", *c, 6))
-      r[0] += num;
-    else if (std::memchr("yYkKbB", *c, 6))
-      r[1] += num;
-    else if (std::memchr("zZlLcC", *c, 6))
-      r[2] += num;
-    else
-      fail(std::string("unexpected character '") + *c + "' in: " + s);
-    ++c;
+    if (den != 1) {
+      if (den <= 0 || Op::DEN % den != 0)
+        fail("Wrong denominator " + std::to_string(den) + " in: " + s);
+      num /= den;
+    }
+    r[r_idx] += num;
     num = 0;
   }
   if (num != 0)
@@ -281,7 +335,7 @@ inline void append_sign_of(std::string& s, int n) {
 }
 
 // append w/DEN fraction reduced to the lowest terms
-inline void append_op_fraction(std::string& s, int w) {
+inline std::pair<int,int> get_op_fraction(int w) {
   // Op::DEN == 24 == 2 * 2 * 2 * 3
   int denom = 1;
   for (int i = 0; i != 3; ++i)
@@ -293,52 +347,74 @@ inline void append_op_fraction(std::string& s, int w) {
     w /= 3;
   else
     denom *= 3;
-  impl::append_small_number(s, w);
-  if (denom != 1) {
+  return {w, denom};
+}
+
+inline void append_fraction(std::string& s, std::pair<int,int> frac) {
+  append_small_number(s, frac.first);
+  if (frac.second != 1) {
     s += '/';
-    impl::append_small_number(s, denom);
+    append_small_number(s, frac.second);
   }
 }
 
 } // namespace impl
 
-inline std::string make_triplet_part(int x, int y, int z, int w,
+inline std::string make_triplet_part(const std::array<int, 3>& xyz, int w,
                                      char style='x') {
   std::string s;
-  int xyz[] = { x, y, z };
+  const char* letters = "xyz hkl abc XYZ HKL ABC";
+  switch(style | 0x20) {  // |0x20 converts to lower case
+    case 'x': break;
+    case 'h': letters += 4; break;
+    case 'a': letters += 8; break;
+    default: fail("unexpected triplet style: ", style);
+  }
+  if (!(style & 0x20))  // not lower
+    letters += 12;
   for (int i = 0; i != 3; ++i)
     if (xyz[i] != 0) {
       impl::append_sign_of(s, xyz[i]);
       int a = std::abs(xyz[i]);
       if (a != Op::DEN) {
-        impl::append_op_fraction(s, a);
-        s += '*';
+        std::pair<int,int> frac = impl::get_op_fraction(a);
+        if (frac.first == 1) {  // e.g. "x/3"
+          s += letters[i];
+          s += '/';
+          impl::append_small_number(s, frac.second);
+        } else {  // e.g. "2/3*x"
+          impl::append_fraction(s, frac);
+          s += '*';
+          s += letters[i];
+        }
+      } else {
+        s += letters[i];
       }
-      s += char(style + i);
     }
   if (w != 0) {
     impl::append_sign_of(s, w);
-    impl::append_op_fraction(s, std::abs(w));
+    std::pair<int,int> frac = impl::get_op_fraction(std::abs(w));
+    impl::append_fraction(s, frac);
   }
   return s;
 }
 
-inline std::string Op::triplet() const {
-  return make_triplet_part(rot[0][0], rot[0][1], rot[0][2], tran[0]) +
-   "," + make_triplet_part(rot[1][0], rot[1][1], rot[1][2], tran[1]) +
-   "," + make_triplet_part(rot[2][0], rot[2][1], rot[2][2], tran[2]);
+inline std::string Op::triplet(char style) const {
+  return make_triplet_part(rot[0], tran[0], style) +
+   "," + make_triplet_part(rot[1], tran[1], style) +
+   "," + make_triplet_part(rot[2], tran[2], style);
 }
 
 
 // GROUPS OF OPERATIONS
 
 // corresponds to Table A1.4.2.2 in ITfC vol.B (edition 2010)
-inline std::vector<Op::Tran> centring_vectors(char lattice_symbol) {
+inline std::vector<Op::Tran> centring_vectors(char centring_type) {
   constexpr int h = Op::DEN / 2;
   constexpr int t = Op::DEN / 3;
   constexpr int d = 2 * t;
   // note: find_centering() depends on the order of operations in vector
-  switch (lattice_symbol & ~0x20) {
+  switch (centring_type & ~0x20) {
     case 'P': return {{0, 0, 0}};
     case 'A': return {{0, 0, 0}, {0, h, h}};
     case 'B': return {{0, 0, 0}, {h, 0, h}};
@@ -350,7 +426,7 @@ inline std::vector<Op::Tran> centring_vectors(char lattice_symbol) {
     case 'S': return {{0, 0, 0}, {t, t, d}, {d, t, d}};
     case 'T': return {{0, 0, 0}, {t, d, t}, {d, t, d}};
     case 'F': return {{0, 0, 0}, {0, h, h}, {h, 0, h}, {h, h, 0}};
-    default: fail(std::string("not a lattice symbol: ") + lattice_symbol);
+    default: fail("not a centring type: ", centring_type);
   }
 }
 
@@ -362,6 +438,22 @@ struct GroupOps {
   int order() const { return static_cast<int>(sym_ops.size()*cen_ops.size()); }
 
   void add_missing_elements();
+  void add_missing_elements_part2(const std::vector<Op>& gen,
+                                  size_t max_size, bool ignore_bad_gen);
+
+  bool add_inversion() {
+    size_t init_size = sym_ops.size();
+    sym_ops.reserve(2 * init_size);
+    for (const Op& op : sym_ops) {
+      Op::Rot neg = op.negated_rot();
+      if (find_by_rotation(neg)) {
+        sym_ops.resize(init_size);
+        return false;
+      }
+      sym_ops.push_back({neg, op.tran});
+    }
+    return true;
+  }
 
   char find_centering() const {
     if (cen_ops.size() == 1 && cen_ops[0] == Op::Tran{0, 0, 0})
@@ -389,7 +481,7 @@ struct GroupOps {
     return const_cast<GroupOps*>(this)->find_by_rotation(r);
   }
 
-  bool is_centric() const {
+  bool is_centrosymmetric() const {
     return find_by_rotation({-Op::DEN,0,0, 0,-Op::DEN,0, 0,0,-Op::DEN}) != nullptr;
   }
 
@@ -433,10 +525,9 @@ struct GroupOps {
     return false;
   }
 
-  void change_basis(const Op& cob) {
+  void change_basis_impl(const Op& cob, const Op& inv) {
     if (sym_ops.empty() || cen_ops.empty())
       return;
-    Op inv = cob.inverse();
 
     // Apply change-of-basis to sym_ops.
     // Ignore the first item in sym_ops -- it's identity.
@@ -476,6 +567,9 @@ struct GroupOps {
         }
   }
 
+  void change_basis_forward(const Op& cob) { change_basis_impl(cob, cob.inverse()); }
+  void change_basis_backward(const Op& inv) { change_basis_impl(inv.inverse(), inv); }
+
   std::vector<Op> all_ops_sorted() const {
     std::vector<Op> ops;
     ops.reserve(sym_ops.size() * cen_ops.size());
@@ -499,12 +593,38 @@ struct GroupOps {
     return all_ops_sorted() == other.all_ops_sorted();
   }
 
+  bool has_same_centring(const GroupOps& other) const {
+    if (cen_ops.size() != other.cen_ops.size())
+      return false;
+    if (std::is_sorted(cen_ops.begin(), cen_ops.end()) &&
+        std::is_sorted(other.cen_ops.begin(), other.cen_ops.end()))
+      return cen_ops == other.cen_ops;
+    std::vector<Op::Tran> v1 = cen_ops;
+    std::vector<Op::Tran> v2 = other.cen_ops;
+    std::sort(v1.begin(), v1.end());
+    std::sort(v2.begin(), v2.end());
+    return v1 == v2;
+  }
+
+  bool has_same_rotations(const GroupOps& other) const {
+    if (sym_ops.size() != other.sym_ops.size())
+      return false;
+    auto sorted_rotations = [](const GroupOps& g) {
+      std::vector<Op::Rot> r(g.sym_ops.size());
+      for (size_t i = 0; i != r.size(); ++i)
+        r[i] = g.sym_ops[i].rot;
+      std::sort(r.begin(), r.end());
+      return r;
+    };
+    return sorted_rotations(*this) == sorted_rotations(other);
+  }
+
   // minimal multiplicity for real-space grid in each direction
   // examples: 1,2,1 for P21, 1,1,6 for P61
   std::array<int, 3> find_grid_factors() const {
     const int T = Op::DEN;
     int r[3] = {T, T, T};
-    for (const Op& op : *this)
+    for (Op op : *this)
       for (int i = 0; i != 3; ++i)
         if (op.tran[i] != 0 && op.tran[i] < r[i])
           r[i] = op.tran[i];
@@ -516,6 +636,14 @@ struct GroupOps {
       if (op.rot[u][v] != 0)
         return true;
     return false;
+  }
+
+  // remove translation part of sym_ops
+  GroupOps derive_symmorphic() const {
+    GroupOps r(*this);
+    for (Op& op : r.sym_ops)
+      op.tran[0] = op.tran[1] = op.tran[2] = 0;
+    return r;
   }
 
   struct Iter {
@@ -546,10 +674,7 @@ inline void GroupOps::add_missing_elements() {
     fail("oops");
   if (sym_ops.size() == 1)
     return;
-  auto check_size = [&]() {
-    if (sym_ops.size() > 1023)
-      fail("1000+ elements in the group should not happen");
-  };
+  constexpr size_t max_size = 1024;
   // Below we assume that all centring vectors are already known (in cen_ops)
   // so when checking for a new element we compare only the 3x3 matrix.
   // Dimino's algorithm. https://physics.stackexchange.com/a/351400/95713
@@ -558,8 +683,15 @@ inline void GroupOps::add_missing_elements() {
   const Op::Rot idrot = Op::identity().rot;
   for (Op g = sym_ops[1] * sym_ops[1]; g.rot != idrot; g *= sym_ops[1]) {
     sym_ops.push_back(g);
-    check_size();
+    if (sym_ops.size() > max_size)
+      fail("Too many elements in the group - bad generators");
   }
+  // the rest is in separate function b/c it's reused in twin.hpp
+  add_missing_elements_part2(gen, max_size, false);
+}
+
+inline void GroupOps::add_missing_elements_part2(const std::vector<Op>& gen,
+                                                 size_t max_size, bool ignore_bad_gen) {
   for (size_t i = 1; i < gen.size(); ++i) {
     std::vector<Op> coset_repr(1, Op::identity());
     size_t init_size = sym_ops.size();
@@ -578,7 +710,13 @@ inline void GroupOps::add_missing_elements() {
       }
       if (len == coset_repr.size())
         break;
-      check_size();
+      if (sym_ops.size() > max_size) {
+        if (!ignore_bad_gen)
+          fail("Too many elements in the group - bad generators");
+        // ignore this generator and continue with the next one
+        sym_ops.resize(init_size);
+        break;
+      }
     }
   }
 }
@@ -698,7 +836,7 @@ inline Op hall_matrix_symbol(const char* start, const char* end,
 // Parses either short (0 0 1) or long notation (x,y,z+1/12)
 // but without multpliers (such as 1/2x) to keep things simple for now.
 inline Op parse_hall_change_of_basis(const char* start, const char* end) {
-  if (memchr(start, ',', end - start) != nullptr) // long symbol
+  if (std::memchr(start, ',', end - start) != nullptr) // long symbol
     return parse_triplet(std::string(start, end));
   // short symbol (0 0 1)
   Op cob = Op::identity();
@@ -741,14 +879,14 @@ inline GroupOps generators_from_hall(const char* hall) {
     part = impl::skip_blank(space);
   }
   if (centrosym)
-    ops.sym_ops.emplace_back(Op::identity().negated());
+    ops.sym_ops.push_back({Op::identity().negated_rot(), {0,0,0}});
   if (*part == '(') {
     const char* rb = std::strchr(part, ')');
     if (!rb)
       fail("missing ')': " + std::string(hall));
     if (ops.sym_ops.empty())
       fail("misplaced translation: " + std::string(hall));
-    ops.change_basis(parse_hall_change_of_basis(part + 1, rb));
+    ops.change_basis_forward(parse_hall_change_of_basis(part + 1, rb));
 
     if (*impl::skip_blank(find_blank(rb + 1)) != '\0')
       fail("unexpected characters after ')': " + std::string(hall));
@@ -845,31 +983,32 @@ inline CrystalSystem crystal_system(PointGroup pg) {
 }
 
 inline unsigned char point_group_index_and_category(int space_group_number) {
-  enum : unsigned char { S=0x20, E=(0x20|0x40) };  // Sohncke, enantiomorphic
-  static unsigned char indices[230] = {
-     0|S,  1,    2|S,  2|S,  2|S,   3,   3,    3,    3,    4,    // 1-10
-     4,    4,    4,    4,    4,    5|S,  5|S,  5|S,  5|S,  5|S,  // 11-20
-     5|S,  5|S,  5|S,  5|S,  6,    6,    6,    6,    6,    6,    // 21-30
-     6,    6,    6,    6,    6,    6,    6,    6,    6,    6,    // 31-40
-     6,    6,    6,    6,    6,    6,    7,    7,    7,    7,    // 41-50
+  // 0x20=Sohncke, 0x40=enantiomorphic, 0x80=symmorphic
+  enum : unsigned char { S=0x20, E=(0x20|0x40), Y=0x80, Z=(0x20|0x80) };
+  static const unsigned char indices[230] = {
+     0|Z,  1|Y,  2|Z,  2|S,  2|Z,  3|Y,  3,    3|Y,  3,    4|Y,  // 1-10
+     4,    4|Y,  4,    4,    4,    5|Z,  5|S,  5|S,  5|S,  5|S,  // 11-20
+     5|Z,  5|Z,  5|Z,  5|S,  6|Y,  6,    6,    6,    6,    6,    // 21-30
+     6,    6,    6,    6,    6|Y,  6,    6,    6|Y,  6,    6,    // 31-40
+     6,    6|Y,  6,    6|Y,  6,    6,    7|Y,  7,    7,    7,    // 41-50
      7,    7,    7,    7,    7,    7,    7,    7,    7,    7,    // 51-60
-     7,    7,    7,    7,    7,    7,    7,    7,    7,    7,    // 61-70
-     7,    7,    7,    7,    8|S,  8|E,  8|S,  8|E,  8|S,  8|S,  // 71-80
-     9,    9,   10,   10,   10,   10,   10,   10,   11|S, 11|S,  // 81-90
-    11|E, 11|E, 11|S, 11|S, 11|E, 11|E, 11|S, 11|S, 12,   12,    // 91-100
-    12,   12,   12,   12,   12,   12,   12,   12,   12,   12,    // 101-110
-    13,   13,   13,   13,   13,   13,   13,   13,   13,   13,    // 111-120
-    13,   13,   14,   14,   14,   14,   14,   14,   14,   14,    // 121-130
-    14,   14,   14,   14,   14,   14,   14,   14,   14,   14,    // 131-140
-    14,   14,   15|S, 15|E, 15|E, 15|S, 16,   16,   17|S, 17|S,  // 141-150
-    17|E, 17|E, 17|E, 17|E, 17|S, 18,   18,   18,   18,   18,    // 151-160
-    18,   19,   19,   19,   19,   19,   19,   20|S, 20|E, 20|E,  // 161-170
-    20|E, 20|E, 20|S, 21,   22,   22,   23|S, 23|E, 23|E, 23|E,  // 171-180
-    23|E, 23|S, 24,   24,   24,   24,   25,   25,   25,   25,    // 181-190
-    26,   26,   26,   26,   27|S, 27|S, 27|S, 27|S, 27|S, 28,    // 191-200
-    28,   28,   28,   28,   28,   28,   29|S, 29|S, 29|S, 29|S,  // 201-210
-    29|S, 29|E, 29|E, 29|S, 30,   30,   30,   30,   30,   30,    // 211-220
-    31,   31,   31,   31,   31,   31,   31,   31,   31,   31     // 221-230
+     7,    7,    7,    7,    7|Y,  7,    7,    7,    7|Y,  7,    // 61-70
+     7|Y,  7,    7,    7,    8|Z,  8|E,  8|S,  8|E,  8|Z,  8|S,  // 71-80
+     9|Y,  9|Y, 10|Y, 10,   10,   10,   10|Y, 10,   11|Z, 11|S,  // 81-90
+    11|E, 11|E, 11|S, 11|S, 11|E, 11|E, 11|Z, 11|S, 12|Y, 12,    // 91-100
+    12,   12,   12,   12,   12,   12,   12|Y, 12,   12,   12,    // 101-110
+    13|Y, 13,   13,   13,   13|Y, 13,   13,   13,   13|Y, 13,    // 111-120
+    13|Y, 13,   14|Y, 14,   14,   14,   14,   14,   14,   14,    // 121-130
+    14,   14,   14,   14,   14,   14,   14,   14,   14|Y, 14,    // 131-140
+    14,   14,   15|Z, 15|E, 15|E, 15|Z, 16|Y, 16|Y, 17|Z, 17|Z,  // 141-150
+    17|E, 17|E, 17|E, 17|E, 17|Z, 18|Y, 18|Y, 18,   18,   18|Y,  // 151-160
+    18,   19|Y, 19,   19|Y, 19,   19|Y, 19,   20|Z, 20|E, 20|E,  // 161-170
+    20|E, 20|E, 20|S, 21|Y, 22|Y, 22,   23|Z, 23|E, 23|E, 23|E,  // 171-180
+    23|E, 23|S, 24|Y, 24,   24,   24,   25|Y, 25,   25|Y, 25,    // 181-190
+    26|Y, 26,   26,   26,   27|Z, 27|Z, 27|Z, 27|S, 27|S, 28|Y,  // 191-200
+    28,   28|Y, 28,   28|Y, 28,   28,   29|Z, 29|S, 29|Z, 29|S,  // 201-210
+    29|Z, 29|E, 29|E, 29|S, 30|Y, 30|Y, 30|Y, 30,   30,   30,    // 211-220
+    31|Y, 31,   31,   31,   31|Y, 31,   31,   31,   31|Y, 31     // 221-230
   };
   return indices[space_group_number-1];
 }
@@ -889,6 +1028,10 @@ inline bool is_enantiomorphic(int space_group_number) {
   return (point_group_index_and_category(space_group_number) & 0x40) != 0;
 }
 
+// true for 73 space groups
+inline bool is_symmorphic(int space_group_number) {
+  return (point_group_index_and_category(space_group_number) & 0x80) != 0;
+}
 
 // Generated by tools/gen_sg_table.py.
 inline const char* get_basisop(int basisop_idx) {
@@ -934,16 +1077,35 @@ inline const char* get_basisop(int basisop_idx) {
     "x+1/4,y+1/4,-x+z-1/4",
     "x+1/4,y,z",
     "x,y,z+1/4",
-    "-x,-1/2*y+1/2*z,1/2*y+1/2*z",
-    "-1/2*x+1/2*z,-y,1/2*x+1/2*z",
-    "1/2*x+1/2*y,1/2*x-1/2*y,-z",
-    "1/2*y+1/2*z,1/2*x+1/2*z,1/2*x+1/2*y",
-    "-1/2*x+1/2*y+1/2*z,1/2*x-1/2*y+1/2*z,1/2*x+1/2*y-1/2*z",
-    "-1/2*x+z,1/2*x,y",
-    "x-1/2*z,y,1/2*z",
-    "1/2*x+1/2*y,-1/2*x+1/2*y,z",
+    "-x,-y/2+z/2,y/2+z/2",
+    "-x/2+z/2,-y,x/2+z/2",
+    "x/2+y/2,x/2-y/2,-z",
+    "y/2+z/2,x/2+z/2,x/2+y/2",
+    "-x/2+y/2+z/2,x/2-y/2+z/2,x/2+y/2-z/2",
+    "-x/2+z,x/2,y",
+    "x-z/2,y,z/2",
+    "x/2+y/2,-x/2+y/2,z",
   };
   return basisops[basisop_idx];
+}
+
+// Returns a change-of-basis operator for centred -> primitive transformation.
+// The same operator as inverse of z2p_op in sgtbx.
+inline Op::Rot centred_to_primitive(char centring_type) {
+  constexpr int D = Op::DEN;
+  constexpr int H = Op::DEN / 2;
+  constexpr int T = Op::DEN / 3;
+  switch (centring_type) {
+    case 'P': return {D,0,0, 0,D,0, 0,0,D};
+    case 'A': return {-D,0,0, 0,-H,H, 0,H,H};
+    case 'B': return {-H,0,H, 0,-D,0, H,0,H};
+    case 'C': return {H,H,0, H,-H,0, 0,0,-D};
+    case 'I': return {-H,H,H, H,-H,H, H,H,-H};
+    case 'R': return {2*T,-T,-T, T,T,-2*T, T,T,T};
+    case 'H': return {2*T,-T,0, T,T,0, 0,0,D};  // not used normally
+    case 'F': return {0,H,H, H,0,H, H,H,0};
+    default: fail("not a centring type: ", centring_type);
+  }
 }
 
 
@@ -967,6 +1129,8 @@ struct SpaceGroup { // typically 44 bytes
     return ret;
   }
 
+  char centring_type() const { return ext == 'R' ? 'P' : hm[0]; }
+
   // (old) CCP4 spacegroup names start with H for hexagonal setting
   char ccp4_lattice_type() const { return ext == 'H' ? 'H' : hm[0]; }
 
@@ -982,8 +1146,18 @@ struct SpaceGroup { // typically 44 bytes
     return s;
   }
 
+  // As explained in Phenix newsletter CCN_2011_01.pdf#page=12
+  // the PDB uses own, non-standard symbols for rhombohedral space groups.
+  std::string pdb_name() const {
+    std::string s;
+    s += ccp4_lattice_type();
+    s += hm+1;
+    return s;
+  }
+
   bool is_sohncke() const { return gemmi::is_sohncke(number); }
   bool is_enantiomorphic() const { return gemmi::is_enantiomorphic(number); }
+  bool is_symmorphic() const { return gemmi::is_symmorphic(number); }
   PointGroup point_group() const { return gemmi::point_group(number); }
   const char* point_group_hm() const {
     return gemmi::point_group_hm(point_group());
@@ -996,10 +1170,17 @@ struct SpaceGroup { // typically 44 bytes
   const char* crystal_system_str() const {
     return gemmi::crystal_system_str(crystal_system());
   }
+  bool is_centrosymmetric() const {
+    return laue_to_pointgroup(laue_class()) == point_group();
+  }
 
   const char* basisop_str() const { return get_basisop(basisop_idx); }
   Op basisop() const { return parse_triplet(basisop_str()); }
   bool is_reference_setting() const { return basisop_idx == 0; }
+
+  Op centred_to_primitive() const {
+    return {gemmi::centred_to_primitive(centring_type()), {0,0,0}};
+  }
 
   GroupOps operations() const { return symops_from_hall(hall); }
 };
@@ -1017,13 +1198,13 @@ namespace impl {
 template<class Dummy>
 struct Tables_
 {
-  static const SpaceGroup main[555];
+  static const SpaceGroup main[559];
   static const SpaceGroupAltName alt_names[28];
-  static const char ccp4_hkl_asu[230];
+  static const unsigned char ccp4_hkl_asu[230];
 };
 
 template<class Dummy>
-const SpaceGroup Tables_<Dummy>::main[555] = {
+const SpaceGroup Tables_<Dummy>::main[559] = {
   // This table was generated by tools/gen_sg_table.py.
   // First 530 entries in the same order as in SgInfo, sgtbx and ITB.
   // Note: spacegroup 68 has three duplicates with different H-M names.
@@ -1567,8 +1748,11 @@ const SpaceGroup Tables_<Dummy>::main[555] = {
   { 23, 1023, "I 2 2 2a"  ,   0,     "", "I 2ab 2bc"     , 33}, // 536
   { 94, 1094, "P 42 21 2a",   0,     "", "P 4bc 2a"      , 20}, // 537
   {197, 1197, "I 2 3a"    ,   0,     "", "I 2ab 2bc 3"   , 30}, // 538
-  // And extra entries from Open Babel, double checked with Crystallographic
-  // Space Group Diagrams and Tables at http://img.chem.ucl.ac.uk/sgp/
+  // And extra entries from Crystallographic Space Group Diagrams and Tables
+  // http://img.chem.ucl.ac.uk/sgp/
+  // We want to have all entries from Open Babel and PDB.
+  // If available, Hall symbols are taken from
+  // https://cci.lbl.gov/cctbx/multiple_cell.html
   // triclinic - enlarged unit cells
   {  1,    0, "A 1"       ,   0,     "", "A 1"           , 41}, // 539
   {  1,    0, "B 1"       ,   0,     "", "B 1"           , 42}, // 540
@@ -1581,13 +1765,17 @@ const SpaceGroup Tables_<Dummy>::main[555] = {
   {  2,    0, "F -1"      ,   0,     "", "-F 1"          , 44}, // 547
   {  2,    0, "I -1"      ,   0,     "", "-I 1"          , 45}, // 548
   // monoclinic
-  {  4,    0, "C 1 1 21"  ,   0,     "", "C 2c"          , 46}, // 549
-  { 12,    0, "F 1 2/m 1" ,   0,     "", "-F 2y"         , 47}, // 550
-  { 64,    0, "A b a m"   ,   0,     "", "-A 2 2ab"      , 3 }, // 551
+  {  3,    0, "C 1 1 2"  ,    0,     "", "C 2"           , 46}, // 549
+  {  4,    0, "C 1 1 21"  ,   0,     "", "C 2c"          , 46}, // 550
+  { 12,    0, "F 1 2/m 1" ,   0,     "", "-F 2y"         , 47}, // 551
+  { 64,    0, "A b a m"   ,   0,     "", "-A 2 2ab"      , 3 }, // 552
   // tetragonal - enlarged C- and F-centred unit cells
-  {117,    0, "C -4 2 b"  ,   0,     "", "C -4 2ya"      , 48}, // 552
-  { 97,    0, "F 4 2 2" ,     0,     "", "F 4 2"         , 48}, // 553
-  {139,    0, "F 4/m m m" ,   0,     "", "-F 4 2"        , 48}, // 554
+  { 89,    0, "C 4 2 2" ,     0,     "", "C 4 2"         , 48}, // 553
+  { 90,    0, "C 4 2 21" ,    0,     "", "C 4a 2"        , 48}, // 554
+  { 97,    0, "F 4 2 2" ,     0,     "", "F 4 2"         , 48}, // 555
+  {115,    0, "C -4 2 m"  ,   0,     "", "C -4 2"        , 48}, // 556
+  {117,    0, "C -4 2 b"  ,   0,     "", "C -4 2ya"      , 48}, // 557
+  {139,    0, "F 4/m m m" ,   0,     "", "-F 4 2"        , 48}, // 558
 };
 
 template<class Dummy>
@@ -1629,7 +1817,7 @@ const SpaceGroupAltName Tables_<Dummy>::alt_names[28] = {
 
 // This table was generated by tools/gen_reciprocal_asu.py.
 template<class Dummy>
-const char Tables_<Dummy>::ccp4_hkl_asu[230] = {
+const unsigned char Tables_<Dummy>::ccp4_hkl_asu[230] = {
   0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
   2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
   2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3,
@@ -1674,8 +1862,6 @@ inline const SpaceGroup& get_spacegroup_reference_setting(int number) {
 // to distinguish hexagonal and rhombohedral settings (e.g. for "R 3").
 inline const SpaceGroup* find_spacegroup_by_name(std::string name,
                                   double alpha=0., double gamma=0.) noexcept {
-  if (name[0] == 'H')
-    name[0] = 'R';
   const char* p = impl::skip_blank(name.c_str());
   if (*p >= '0' && *p <= '9') { // handle numbers
     char *endptr;
@@ -1685,9 +1871,12 @@ inline const SpaceGroup* find_spacegroup_by_name(std::string name,
   char first = *p & ~0x20; // to uppercase
   if (first == '\0')
     return nullptr;
+  if (first == 'H')
+    first = 'R';
   p = impl::skip_blank(p+1);
+  size_t start = p - name.c_str();
   // change letters to lower case, except the letter after :
-  for (size_t i = p - name.c_str(); i < name.size(); ++i) {
+  for (size_t i = start; i < name.size(); ++i) {
     if (name[i] >= 'A' && name[i] <= 'Z')
       name[i] |= 0x20;  // to lowercase
     else if (name[i] == ':')
@@ -1695,6 +1884,10 @@ inline const SpaceGroup* find_spacegroup_by_name(std::string name,
         if (name[i] >= 'a' && name[i] <= 'z')
           name[i] &= ~0x20;  // to uppercase
   }
+  // The string that const char* p points to was just modified.
+  // This confuses some compilers (GCC 4.8), so let's re-assign p.
+  p = name.c_str() + start;
+
   for (const SpaceGroup& sg : spacegroup_tables::main)
     if (sg.hm[0] == first) {
       if (sg.hm[2] == *p) {
@@ -1769,29 +1962,19 @@ inline const SpaceGroup* find_spacegroup_by_ops(const GroupOps& gops) {
   return nullptr;
 }
 
-inline
-const SpaceGroup* find_spacegroup_by_change_of_basis(const SpaceGroup* sg,
-                                                     const Op& cob) {
-  if (sg) {
-    GroupOps gops = sg->operations();
-    gops.change_basis(cob);
-    if (const SpaceGroup* new_sg = find_spacegroup_by_ops(gops))
-      return new_sg;
-  }
-  return nullptr;
-}
-
 // Reciprocal space asu (asymmetric unit).
 // The same 12 choices of ASU as in CCP4 symlib and cctbx.
 struct ReciprocalAsu {
   int idx;
-  Op::Rot rot;
+  Op::Rot rot{};  // value-initialized only to avoid -Wmaybe-uninitialized
   bool is_ref;
 
-  ReciprocalAsu(const SpaceGroup* sg) {
+  ReciprocalAsu(const SpaceGroup* sg, bool tnt=false) {
     if (sg == nullptr)
       fail("Missing space group");
     idx = spacegroup_tables::ccp4_hkl_asu[sg->number - 1];
+    if (tnt)
+      idx += 10;
     is_ref = sg->is_reference_setting();
     if (!is_ref)
       rot = sg->basisop().rot;
@@ -1808,16 +1991,27 @@ struct ReciprocalAsu {
 
   bool is_in_reference_setting(int h, int k, int l) const {
     switch (idx) {
+      // 0-9: CCP4 hkl asu,  10-19: TNT hkl asu
       case 0: return l>0 || (l==0 && (h>0 || (h==0 && k>=0)));
       case 1: return k>=0 && (l>0 || (l==0 && h>=0));
+      case 12: // orthorhombic-D
       case 2: return h>=0 && k>=0 && l>=0;
       case 3: return l>=0 && ((h>=0 && k>0) || (h==0 && k==0));
+      case 14: // tetragonal-D, hexagonal-D
       case 4: return h>=k && k>=0 && l>=0;
       case 5: return (h>=0 && k>0) || (h==0 && k==0 && l>=0);
+      case 16: // trigonal-D P312
       case 6: return h>=k && k>=0 && (k>0 || l>=0);
+      case 17: // trigonal-D P321
       case 7: return h>=k && k>=0 && (h>k || l>=0);
       case 8: return h>=0 && ((l>=h && k>h) || (l==h && k==h));
       case 9: return k>=l && l>=h && h>=0;
+      case 10: return k>0 || (k==0 && (h>0 || (h==0 && l>=0))); // triclinic
+      case 11: return k>=0 && (h>0 || (h==0 && l>=0)); // monoclinic-B
+      case 13: return l>=0 && ((k>=0 && h>0) || (h==0 && k==0)); // tetragonal-C, hexagonal-C
+      case 15: return (k>=0 && h>0) || (h==0 && k==0 && l>=0); // trigonal-C
+      case 18: return k>=0 && l>=0 && ((h>k && h>l) || (h==k && h>=l)); // cubic-T
+      case 19: return h>=k && k>=l && l>=0; // cubic-O
     }
     unreachable();
   }
@@ -1826,14 +2020,24 @@ struct ReciprocalAsu {
     switch (idx) {
       case 0: return "l>0 or (l=0 and (h>0 or (h=0 and k>=0)))";
       case 1: return "k>=0 and (l>0 or (l=0 and h>=0))";
+      case 12:
       case 2: return "h>=0 and k>=0 and l>=0";
       case 3: return "l>=0 and ((h>=0 and k>0) or (h=0 and k=0))";
+      case 14:
       case 4: return "h>=k and k>=0 and l>=0";
       case 5: return "(h>=0 and k>0) or (h=0 and k=0 and l>=0)";
+      case 16:
       case 6: return "h>=k and k>=0 and (k>0 or l>=0)";
+      case 17:
       case 7: return "h>=k and k>=0 and (h>k or l>=0)";
       case 8: return "h>=0 and ((l>=h and k>h) or (l=h and k=h))";
       case 9: return "k>=l and l>=h and h>=0";
+      case 10: return "k>0 or (k==0 and (h>0 or (h==0 and l>=0)))";
+      case 11: return "k>=0 and (h>0 or (h==0 and l>=0))";
+      case 13: return "l>=0 and ((k>=0 and h>0) or (h==0 and k==0))";
+      case 15: return "(k>=0 and h>0) or (h==0 and k==0 and l>=0)";
+      case 18: return "k>=0 and l>=0 and ((h>k and h>l) or (h==k and h>=l))";
+      case 19: return "h>=k and k>=l and l>=0";
     }
     unreachable();
   }

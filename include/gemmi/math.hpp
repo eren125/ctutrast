@@ -76,13 +76,21 @@ struct Vec3 {
   }
   double length_sq() const { return x * x + y * y + z * z; }
   double length() const { return std::sqrt(length_sq()); }
-  Vec3 normalized() const { return operator/(length()); }
+  Vec3 changed_magnitude(double m) const { return operator*(m / length()); }
+  Vec3 normalized() const { return changed_magnitude(1.0); }
   double dist_sq(const Vec3& o) const { return (*this - o).length_sq(); }
   double dist(const Vec3& o) const { return std::sqrt(dist_sq(o)); }
+  double cos_angle(const Vec3& o) const {
+    return dot(o) / std::sqrt(length_sq() * o.length_sq());
+  }
+  double angle(const Vec3& o) const { return std::acos(cos_angle(o)); }
   bool approx(const Vec3& o, double epsilon) const {
     return std::fabs(x - o.x) <= epsilon &&
            std::fabs(y - o.y) <= epsilon &&
            std::fabs(z - o.z) <= epsilon;
+  }
+  bool has_nan() const {
+    return std::isnan(x) || std::isnan(y) || std::isnan(z);
   }
   std::string str() const {
     using namespace std;
@@ -108,6 +116,29 @@ struct Mat33 {
         double c1, double c2, double c3)
   : a{{a1, a2, a3}, {b1, b2, b3}, {c1, c2, c3}} {}
 
+  Vec3 row_copy(int i) const {
+    if (i < 0 || i > 2)
+      throw std::out_of_range("Mat33 row index must be 0, 1 or 2.");
+    return Vec3(a[i][0], a[i][1], a[i][2]);
+  }
+
+  Vec3 column_copy(int i) const {
+    if (i < 0 || i > 2)
+      throw std::out_of_range("Mat33 column index must be 0, 1 or 2.");
+    return Vec3(a[0][i], a[1][i], a[2][i]);
+  }
+
+  Mat33 operator+(const Mat33& b) const {
+    return Mat33(a[0][0] + b[0][0], a[0][1] + b[0][1], a[0][2] + b[0][2],
+                 a[1][0] + b[1][0], a[1][1] + b[1][1], a[1][2] + b[1][2],
+                 a[2][0] + b[2][0], a[2][1] + b[2][1], a[2][2] + b[2][2]);
+  }
+  Mat33 operator-(const Mat33& b) const {
+    return Mat33(a[0][0] - b[0][0], a[0][1] - b[0][1], a[0][2] - b[0][2],
+                 a[1][0] - b[1][0], a[1][1] - b[1][1], a[1][2] - b[1][2],
+                 a[2][0] - b[2][0], a[2][1] - b[2][1], a[2][2] - b[2][2]);
+  }
+
   Vec3 multiply(const Vec3& p) const {
     return {a[0][0] * p.x + a[0][1] * p.y + a[0][2] * p.z,
             a[1][0] * p.x + a[1][1] * p.y + a[1][2] * p.z,
@@ -117,6 +148,12 @@ struct Mat33 {
     return {a[0][0] * p.x + a[1][0] * p.y + a[2][0] * p.z,
             a[0][1] * p.x + a[1][1] * p.y + a[2][1] * p.z,
             a[0][2] * p.x + a[1][2] * p.y + a[2][2] * p.z};
+  }
+  // p has elements from the main diagonal of a 3x3 diagonal matrix
+  Mat33 multiply_by_diagonal(const Vec3& p) const {
+    return Mat33(a[0][0] * p.x, a[0][1] * p.y, a[0][2] * p.z,
+                 a[1][0] * p.x, a[1][1] * p.y, a[1][2] * p.z,
+                 a[2][0] * p.x, a[2][1] * p.y, a[2][2] * p.z);
   }
   Mat33 multiply(const Mat33& b) const {
     Mat33 r;
@@ -130,6 +167,7 @@ struct Mat33 {
                  a[0][1], a[1][1], a[2][1],
                  a[0][2], a[1][2], a[2][2]);
   }
+  double trace() const { return a[0][0] + a[1][1] + a[2][2]; }
 
   bool approx(const Mat33& other, double epsilon) const {
     for (int i = 0; i < 3; ++i)
@@ -138,6 +176,14 @@ struct Mat33 {
           return false;
     return true;
   }
+  bool has_nan() const {
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j)
+        if (std::isnan(a[i][j]))
+            return true;
+    return false;
+  }
+
   double determinant() const {
     return a[0][0] * (a[1][1]*a[2][2] - a[2][1]*a[1][2]) +
            a[0][1] * (a[1][2]*a[2][0] - a[2][2]*a[1][0]) +
@@ -162,15 +208,20 @@ struct Mat33 {
            a[1][0] == 0 && a[1][1] == 1 && a[1][2] == 0 &&
            a[2][0] == 0 && a[2][1] == 0 && a[2][2] == 1;
   }
+
+  double column_dot(int i, int j) const {
+    return a[0][i] * a[0][j] + a[1][i] * a[1][j] + a[2][i] * a[2][j];
+  }
 };
 
 // Symmetric matrix 3x3. Used primarily for an ADP tensor.
 template<typename T> struct SMat33 {
   T u11, u22, u33, u12, u13, u23;
 
-  std::array<T, 6> elements() const {
-    return {{u11, u22, u33, u12, u13, u23}};
-  }
+  // The PDB ANISOU record has the above order, but in a different context
+  // (such as metric tensor) the order of Voigt notation may be preferred.
+  std::array<T, 6> elements_pdb() const   { return {{u11, u22, u33, u12, u13, u23}}; }
+  std::array<T, 6> elements_voigt() const { return {{u11, u22, u33, u23, u13, u12}}; }
 
   Mat33 as_mat33() const {
     return Mat33(u11, u12, u13, u12, u22, u23, u13, u23, u33);
@@ -203,10 +254,21 @@ template<typename T> struct SMat33 {
       2 * (r.x * r.y * u12 + r.x * r.z * u13 + r.y * r.z * u23);
   }
   double r_u_r(const std::array<int,3>& h) const {
+    // it's faster to first convert ints to doubles (Vec3)
     return r_u_r(Vec3(h));
-    // this is slower:
-    //return h[0] * h[0] * u11 + h[1] * h[1] * u22 + h[2] * h[2] * u33 +
-    //  2 * (h[0] * h[1] * u12 + h[0] * h[2] * u13 + h[1] * h[2] * u23);
+  }
+
+  Vec3 multiply(const Vec3& p) const {
+    return {u11 * p.x + u12 * p.y + u13 * p.z,
+            u12 * p.x + u22 * p.y + u23 * p.z,
+            u13 * p.x + u23 * p.y + u33 * p.z};
+  }
+
+  SMat33 operator-(const SMat33& o) const {
+    return {u11-o.u11, u22-o.u22, u33-o.u33, u12-o.u12, u13-o.u13, u23-o.u23};
+  }
+  SMat33 operator+(const SMat33& o) const {
+    return {u11+o.u11, u22+o.u22, u33+o.u33, u12+o.u12, u13+o.u13, u23+o.u23};
   }
 
   // return M U M^T
@@ -303,6 +365,10 @@ struct Transform {
   }
   void set_identity() { mat = Mat33(); vec = Vec3(); }
 
+  bool has_nan() const {
+    return mat.has_nan() || vec.has_nan();
+  }
+
   bool approx(const Transform& o, double epsilon) const {
     return mat.approx(o.mat, epsilon) && vec.approx(o.vec, epsilon);
   }
@@ -366,7 +432,7 @@ struct Correlation {
   double mean_y = 0.;
   void add_point(double x, double y) {
     ++n;
-    double weight = (n - 1.0) / n;
+    double weight = (double)(n - 1) / n;
     double dx = x - mean_x;
     double dy = y - mean_y;
     sum_xx += weight * dx * dx;
@@ -391,17 +457,21 @@ struct DataStats {
   double dmax = NAN;
   double dmean = NAN;
   double rms = NAN;
+  size_t nan_count = 0;
 };
 
 template<typename T>
 DataStats calculate_data_statistics(const std::vector<T>& data) {
   DataStats stats;
-  if (data.empty())
-    return stats;
   double sum = 0;
   double sq_sum = 0;
-  stats.dmin = stats.dmax = data[0];
+  stats.dmin = INFINITY;
+  stats.dmax = -INFINITY;
   for (double d : data) {
+    if (std::isnan(d)) {
+      stats.nan_count++;
+      continue;
+    }
     sum += d;
     sq_sum += d * d;
     if (d < stats.dmin)
@@ -409,10 +479,33 @@ DataStats calculate_data_statistics(const std::vector<T>& data) {
     if (d > stats.dmax)
       stats.dmax = d;
   }
-  stats.dmean = sum / data.size();
-  stats.rms = std::sqrt(sq_sum / data.size() - stats.dmean * stats.dmean);
+  if (stats.nan_count != data.size()) {
+    stats.dmean = sum / (data.size() - stats.nan_count);
+    stats.rms = std::sqrt(sq_sum / (data.size() - stats.nan_count) - stats.dmean * stats.dmean);
+  } else {
+    stats.dmin = NAN;
+    stats.dmax = NAN;
+  }
   return stats;
 }
+
+// internally used functions
+namespace impl {
+// MSVC is missing isnan(IntegralType), so we define is_nan as a replacement
+template<typename T>
+typename std::enable_if<std::is_integral<T>::value, bool>::type
+is_nan(T) { return false; }
+template<typename T>
+typename std::enable_if<std::is_floating_point<T>::value, bool>::type
+is_nan(T a) { return std::isnan(a); }
+
+template<typename T>
+typename std::enable_if<std::is_integral<T>::value, bool>::type
+is_same(T a, T b) { return a == b; }
+template<typename T>
+typename std::enable_if<std::is_floating_point<T>::value, bool>::type
+is_same(T a, T b) { return std::isnan(b) ? std::isnan(a) : a == b; }
+} // namespace impl
 
 } // namespace gemmi
 #endif

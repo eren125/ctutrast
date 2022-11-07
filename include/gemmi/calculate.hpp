@@ -10,16 +10,17 @@
 
 namespace gemmi {
 
-template<class T> size_t count_atom_sites(const T& obj) {
-  size_t sum = 0;
+template<class T> bool has_hydrogen(const T& obj) {
   for (const auto& child : obj.children())
-    sum += count_atom_sites(child);
-  return sum;
+    if (has_hydrogen(child))
+      return true;
+  return false;
 }
-template<> inline size_t count_atom_sites(const Residue& res) {
-  return res.atoms.size();
+template<> inline bool has_hydrogen(const Atom& atom) {
+  return atom.is_hydrogen();
 }
 
+/// deprecated, use has_hydrogen() or count_atom_sites(..., Selection("[H,D]")
 template<class T> size_t count_hydrogen_sites(const T& obj) {
   size_t sum = 0;
   for (const auto& child : obj.children())
@@ -28,16 +29,6 @@ template<class T> size_t count_hydrogen_sites(const T& obj) {
 }
 template<> inline size_t count_hydrogen_sites(const Atom& atom) {
   return (size_t) atom.is_hydrogen();
-}
-
-template<class T> double count_occupancies(const T& obj) {
-  double sum = 0;
-  for (const auto& child : obj.children())
-    sum += count_occupancies(child);
-  return sum;
-}
-template<> inline double count_occupancies(const Atom& atom) {
-  return atom.occ;
 }
 
 template<class T> double calculate_mass(const T& obj) {
@@ -69,6 +60,7 @@ template<> inline CenterOfMass calculate_center_of_mass(const Atom& atom) {
   return CenterOfMass{Position(atom.pos * w_mass), w_mass};
 }
 
+// we don't take NCS into account here (cf. NeighborSearch::set_bounding_cell())
 inline Box<Position> calculate_box(const Structure& st, double margin=0.) {
   Box<Position> box;
   for (const Model& model : st.models)
@@ -103,13 +95,9 @@ inline double calculate_b_est(const Atom& atom) {
                               (1/eig[0] + 1/eig[1] + 1/eig[2]));
 }
 
-inline double calculate_angle_v(const Vec3& a, const Vec3& b) {
-  return std::acos(a.dot(b) / std::sqrt(a.length_sq() * b.length_sq()));
-}
-
 inline double calculate_angle(const Position& p0, const Position& p1,
                               const Position& p2) {
-  return calculate_angle_v(p0 - p1, p2 - p1);
+  return (p0 - p1).angle(p2 - p1);
 }
 
 // discussion: https://stackoverflow.com/questions/20305272/
@@ -125,6 +113,7 @@ inline double calculate_dihedral(const Position& p0, const Position& p1,
   return std::atan2(y, x);
 }
 
+/// the return value is in the same range as that of atan2(), i.e. [-pi, pi]
 inline double calculate_dihedral_from_atoms(const Atom* a, const Atom* b,
                                             const Atom* c, const Atom* d) {
   if (a && b && c && d)

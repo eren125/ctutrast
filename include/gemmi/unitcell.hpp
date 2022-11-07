@@ -10,14 +10,28 @@
 #include <vector>
 #include "math.hpp"
 #include "fail.hpp"   // for fail
+#include "symmetry.hpp"  // for Op, SpaceGroup
 
 namespace gemmi {
 
-// coordinates in Angstroms (a.k.a. orthogonal coordinates)
+inline Mat33 rot_as_mat33(const Op::Rot& rot) {
+  double mult = 1.0 / Op::DEN;
+  return Mat33(mult * rot[0][0], mult * rot[0][1], mult * rot[0][2],
+               mult * rot[1][0], mult * rot[1][1], mult * rot[1][2],
+               mult * rot[2][0], mult * rot[2][1], mult * rot[2][2]);
+}
+inline Mat33 rot_as_mat33(const Op& op) { return rot_as_mat33(op.rot); }
+
+
+inline Vec3 tran_as_vec3(const Op& op) {
+  double mult = 1.0 / Op::DEN;
+  return Vec3(mult * op.tran[0], mult * op.tran[1], mult * op.tran[2]);
+}
+
+/// Coordinates in Angstroms - orthogonal (Cartesian) coordinates.
 struct Position : Vec3 {
+  using Vec3::Vec3;
   Position() = default;
-  Position(double x_, double y_, double z_) : Vec3{x_, y_, z_} {}
-  explicit Position(Vec3&& v) : Vec3(v) {}
   explicit Position(const Vec3& v) : Vec3(v) {}
   Position operator-() const { return Position(Vec3::operator-()); }
   Position operator-(const Position& o) const { return Position(Vec3::operator-(o)); }
@@ -32,11 +46,11 @@ struct Position : Vec3 {
 
 inline Position operator*(double d, const Position& v) { return v * d; }
 
-// fractional coordinates
+/// Fractional coordinates.
 struct Fractional : Vec3 {
+  using Vec3::Vec3;
   Fractional() = default;
-  Fractional(double x_, double y_, double z_) : Vec3{x_, y_, z_} {}
-  explicit Fractional(Vec3&& v) : Vec3(v) {}
+  explicit Fractional(const Vec3& v) : Vec3(v) {}
   Fractional operator-(const Fractional& o) const {
     return Fractional(Vec3::operator-(o));
   }
@@ -49,6 +63,9 @@ struct Fractional : Vec3 {
   Fractional wrap_to_zero() const {
     return {x - std::round(x), y - std::round(y), z - std::round(z)};
   }
+  Fractional round() const {
+    return {std::round(x), std::round(y), std::round(z)};
+  }
   void move_toward_zero_by_one() {
     if (x > 0.5) x -= 1.0; else if (x < -0.5) x += 1.0;
     if (y > 0.5) y -= 1.0; else if (y < -0.5) y += 1.0;
@@ -58,36 +75,48 @@ struct Fractional : Vec3 {
 
 enum class Asu : unsigned char { Same, Different, Any };
 
-// Result of find_nearest_image
-struct SymImage {
+/// Result of find_nearest_image
+struct NearestImage {
   double dist_sq;
-  int box[3] = { 0, 0, 0 };
-  int sym_id = 0;
+  int pbc_shift[3] = { 0, 0, 0 };
+  int sym_idx = 0;
+
   double dist() const { return std::sqrt(dist_sq); }
   bool same_asu() const {
-    return box[0] == 0 && box[1] == 0 && box[2] == 0 && sym_id == 0;
+    return pbc_shift[0] == 0 && pbc_shift[1] == 0 && pbc_shift[2] == 0 && sym_idx == 0;
   }
-  std::string pdb_symbol(bool underscore) const {
-    char nnn[4] = "555";
-    for (int i = 0; i < 3; ++i)
-      nnn[i] -= box[i];
-    return std::to_string(sym_id + 1) + (underscore ? "_" : "") + nnn;
+
+  /// Returns a string such as 1555 or 1_555.
+  std::string symmetry_code(bool underscore) const {
+    std::string s = std::to_string(sym_idx + 1);
+    if (underscore)
+      s += '_';
+    if (unsigned(5 + pbc_shift[0]) <= 9 &&
+        unsigned(5 + pbc_shift[1]) <= 9 &&
+        unsigned(5 + pbc_shift[2]) <= 9) {  // normal, quick path
+      for (int shift : pbc_shift)
+        s += char('5' + shift);
+    } else {                                // problematic, non-standard path
+      for (int i = 0; i < 3; ++i) {
+        if (i != 0 && underscore)
+          s += '_';
+        s += std::to_string(5 + pbc_shift[i]);
+      }
+    }
+    return s;
   }
 };
 
 
-// for the sake of type safety, a variant that has apply() expecting Fractional
+/// Like Transform, but apply() arg is Fractional (not Vec3 - for type safety).
 struct FTransform : Transform {
   FTransform(const Transform& t) : Transform(t) {}
-  FTransform(Transform&& t) : Transform(t) {}
-  FTransform(const Mat33& m, const Vec3& v) : Transform{m, v} {}
   Fractional apply(const Fractional& p) const {
     return Fractional(Transform::apply(p));
   }
 };
 
-
-// Non-crystallographic symmetry operation (such as in the MTRIXn record)
+/// Non-crystallographic symmetry operation (such as in the MTRIXn record)
 struct NcsOp {
   std::string id;
   bool given;
@@ -95,28 +124,38 @@ struct NcsOp {
   Position apply(const Position& p) const { return Position(tr.apply(p)); }
 };
 
-
-// a synonym for convenient passing of hkl
+/// A synonym for convenient passing of hkl.
 using Miller = std::array<int, 3>;
 
+struct MillerHash {
+  std::size_t operator()(const Miller& hkl) const noexcept {
+    return std::size_t((hkl[0] * 1024 + hkl[1]) * 1024 + hkl[2]);
+  }
+};
 
+/// Unit cell. Contains cell parameters as well as pre-calculated
+/// orthogonalization and fractionalization matrices, volume, and more.
+/// Contains symmetry operations (incl. NCS) if they were set from outside.
 struct UnitCell {
   UnitCell() = default;
   UnitCell(double a_, double b_, double c_,
            double alpha_, double beta_, double gamma_) {
     set(a_, b_, c_, alpha_, beta_, gamma_);
   }
+  UnitCell(const std::array<double, 6>& v) {
+    set(v[0], v[1], v[2], v[3], v[4], v[5]);
+  }
   double a = 1.0, b = 1.0, c = 1.0;
   double alpha = 90.0, beta = 90.0, gamma = 90.0;
   Transform orth;
   Transform frac;
-  // volume and reciprocal parameters a*, b*, c*, alpha*, beta*, gamma*
   double volume = 1.0;
+  /// reciprocal parameters a*, b*, c*, alpha*, beta*, gamma*
   double ar = 1.0, br = 1.0, cr = 1.0;
   double cos_alphar = 0.0, cos_betar = 0.0, cos_gammar = 0.0;
   bool explicit_matrices = false;
   short cs_count = 0;  // crystallographic symmetries except identity
-  std::vector<FTransform> images;
+  std::vector<FTransform> images;  // symmetry operations
 
   // Non-crystalline (for example NMR) structures are supposed to use fake
   // unit cell 1x1x1, but sometimes they don't. A number of non-crystalline
@@ -134,6 +173,14 @@ struct UnitCell {
     auto eq = [&](double x, double y) { return std::fabs(x - y) < epsilon; };
     return eq(a, o.a) && eq(b, o.b) && eq(c, o.c) &&
            eq(alpha, o.alpha) && eq(beta, o.beta) && eq(gamma, o.gamma);
+  }
+
+  // compare lengths using relative tolerance rel, angles using tolerance deg
+  bool is_similar(const UnitCell& o, double rel, double deg) const {
+    auto siml = [&](double x, double y) { return std::fabs(x - y) < rel * std::max(x, y); };
+    auto sima = [&](double x, double y) { return std::fabs(x - y) < deg; };
+    return siml(a, o.a) && siml(b, o.b) && siml(c, o.c) &&
+           sima(alpha, o.alpha) && sima(beta, o.beta) && sima(gamma, o.gamma);
   }
 
   void calculate_properties() {
@@ -186,32 +233,33 @@ struct UnitCell {
     frac.vec = {0., 0., 0.};
   }
 
-  // B matrix following convention from Busing & Levy (1967), not from cctbx.
-  // Cf. https://dials.github.io/documentation/conventions.html
+  double cos_alpha() const { return alpha == 90. ? 0. : std::cos(rad(alpha)); }
+
+  /// B matrix following convention from Busing & Levy (1967), not from cctbx.
+  /// Cf. https://dials.github.io/documentation/conventions.html
   Mat33 calculate_matrix_B() const {
-    double cos_alpha = alpha == 90. ? 0. : std::cos(rad(alpha));
     double sin_gammar = std::sqrt(1 - cos_gammar * cos_gammar);
     double sin_betar = std::sqrt(1 - cos_betar * cos_betar);
     return Mat33(ar, br * cos_gammar, cr * cos_betar,
-                 0., br * sin_gammar, -cr * sin_betar * cos_alpha,
+                 0., br * sin_gammar, -cr * sin_betar * cos_alpha(),
                  0., 0., 1.0 / c);
   }
 
-  // based on Fischer & Tillmanns (1988). Acta Cryst. C44, 775-776.
-  // "The equivalent isotropic displacement factor."
-  // The argument is a non-orthogonalized tensor U,
-  // i.e. the one from SmallStructure::Site, but not from Atom.
+  /// The equivalent isotropic displacement factor.
+  /// Based on Fischer & Tillmanns (1988). Acta Cryst. C44, 775-776.
+  /// The argument is a non-orthogonalized tensor U,
+  /// i.e. the one from SmallStructure::Site, but not from Atom.
   double calculate_u_eq(const SMat33<double>& ani) const {
     double aar = a * ar;
     double bbr = b * br;
     double ccr = c * cr;
-    double cos_alpha = alpha == 90. ? 0. : std::cos(rad(alpha));
+    // it could be optimized using orth.mat[0][1] and orth.mat[0][2]
     double cos_beta  = beta  == 90. ? 0. : std::cos(rad(beta));
     double cos_gamma = gamma == 90. ? 0. : std::cos(rad(gamma));
     return 1/3. * (sq(aar) * ani.u11 + sq(bbr) * ani.u22 + sq(ccr) * ani.u33 +
                    2 * (aar * bbr * cos_gamma * ani.u12 +
                         aar * ccr * cos_beta * ani.u13 +
-                        bbr * ccr * cos_alpha * ani.u23));
+                        bbr * ccr * cos_alpha() * ani.u23));
   }
 
   void set_matrices_from_fract(const Transform& f) {
@@ -242,24 +290,62 @@ struct UnitCell {
     calculate_properties();
   }
 
-  // template to avoid dependency on symmetry.hpp
-  template<typename SG> void set_cell_images_from_spacegroup(const SG* sg) {
+  void set_from_vectors(const Vec3& va, const Vec3& vb, const Vec3& vc) {
+    set(va.length(), vb.length(), vc.length(),
+        deg(vb.angle(vc)), deg(vc.angle(va)), deg(va.angle(vb)));
+  }
+
+  UnitCell changed_basis_backward(const Op& op, bool set_images) {
+    Mat33 mat = orth.mat.multiply(rot_as_mat33(op));
+    UnitCell new_cell;
+    new_cell.set_from_vectors(mat.column_copy(0),
+                              mat.column_copy(1),
+                              mat.column_copy(2));
+    if (set_images && !images.empty()) {
+      new_cell.images.reserve(images.size());
+      Transform tr{rot_as_mat33(op), tran_as_vec3(op)};
+      Transform tr_inv = tr.inverse();
+      for (const FTransform& im : images)
+        new_cell.images.push_back(tr.combine(im).combine(tr_inv));
+    }
+    return new_cell;
+  }
+
+  UnitCell changed_basis_forward(const Op& op, bool set_images) {
+    return changed_basis_backward(op.inverse(), set_images);
+  }
+
+  bool is_compatible_with_groupops(const GroupOps& gops, double eps=1e-3) {
+    std::array<double,6> metric = metric_tensor().elements_voigt();
+    for (const Op& op : gops.sym_ops) {
+      Mat33 m = orth.mat.multiply(rot_as_mat33(op));
+      std::array<double,6> other = {{
+        m.column_dot(0,0), m.column_dot(1,1), m.column_dot(2,2),
+        m.column_dot(1,2), m.column_dot(0,2), m.column_dot(0,1)
+      }};
+      for (int i = 0; i < 6; ++i)
+        if (std::fabs(metric[i] - other[i]) > eps)
+          return false;
+    }
+    return true;
+  }
+
+  bool is_compatible_with_spacegroup(const SpaceGroup* sg, double eps=1e-3) {
+    return sg ? is_compatible_with_groupops(sg->operations(), eps) : false;
+  }
+
+  void set_cell_images_from_spacegroup(const SpaceGroup* sg) {
     images.clear();
     cs_count = 0;
     if (!sg)
       return;
-    auto group_ops = sg->operations();
+    GroupOps group_ops = sg->operations();
     cs_count = (short) group_ops.order() - 1;
     images.reserve(cs_count);
-    for (const auto& op : group_ops) {
-      if (op == op.identity())
+    for (Op op : group_ops) {
+      if (op == Op::identity())
         continue;
-      double mult = 1.0 / op.DEN;
-      Mat33 rot(mult * op.rot[0][0], mult * op.rot[0][1], mult * op.rot[0][2],
-                mult * op.rot[1][0], mult * op.rot[1][1], mult * op.rot[1][2],
-                mult * op.rot[2][0], mult * op.rot[2][1], mult * op.rot[2][2]);
-      Vec3 tran(mult * op.tran[0], mult * op.tran[1], mult * op.tran[2]);
-      images.emplace_back(rot, tran);
+      images.push_back(Transform{rot_as_mat33(op), tran_as_vec3(op)});
     }
   }
 
@@ -275,6 +361,13 @@ struct UnitCell {
       }
   }
 
+  std::vector<FTransform> get_ncs_transforms() const {
+    std::vector<FTransform> ncs;
+    for (size_t n = cs_count; n < images.size(); n += cs_count + 1)
+      ncs.push_back(images[n]);
+    return ncs;
+  }
+
   Position orthogonalize(const Fractional& f) const {
     return Position(orth.apply(f));
   }
@@ -282,11 +375,37 @@ struct UnitCell {
     return Fractional(frac.apply(o));
   }
 
-  // orthogonalize_difference(a-b) == orthogonalize(a) - orthogonalize(b)
+  /// orthogonalize_difference(a-b) == orthogonalize(a) - orthogonalize(b)
   // The shift (fract.vec) can be non-zero in non-standard settings,
   // just do not apply it here.
   Position orthogonalize_difference(const Fractional& delta) const {
     return Position(orth.mat.multiply(delta));
+  }
+  /// the inverse of orthogonalize_difference
+  Fractional fractionalize_difference(const Position& delta) const {
+    return Fractional(frac.mat.multiply(delta));
+  }
+
+  /// Returns box containing fractional box (a cuboid in fractional
+  /// coordinates can be a parallelepiped in Cartesian coordinates).
+  Box<Position> orthogonalize_box(const Box<Fractional>& f) const {
+    Box<Position> r;
+    r.minimum = orthogonalize(f.minimum);
+    r.maximum = orthogonalize(f.maximum);
+    if (alpha != 90. || beta == 90. || gamma == 90.) {
+      r.extend(orthogonalize({f.minimum.x, f.minimum.y, f.maximum.z}));
+      r.extend(orthogonalize({f.minimum.x, f.maximum.y, f.maximum.z}));
+      r.extend(orthogonalize({f.minimum.x, f.maximum.y, f.minimum.z}));
+      r.extend(orthogonalize({f.maximum.x, f.maximum.y, f.minimum.z}));
+      r.extend(orthogonalize({f.maximum.x, f.minimum.y, f.minimum.z}));
+      r.extend(orthogonalize({f.maximum.x, f.minimum.y, f.maximum.z}));
+    }
+    return r;
+  }
+
+  Transform op_as_transform(const Op& op) const {
+    Transform frac_tr{rot_as_mat33(op), tran_as_vec3(op)};
+    return orth.combine(frac_tr.combine(frac));
   }
 
   double distance_sq(const Fractional& pos1, const Fractional& pos2) const {
@@ -302,25 +421,24 @@ struct UnitCell {
   }
 
   // Helper function. PBC = periodic boundary conditions.
-  bool search_pbc_images(Fractional&& diff, SymImage& image) const {
-    int box[3] = { iround(diff.x), iround(diff.y), iround(diff.z) };
-    diff.x -= box[0];
-    diff.y -= box[1];
-    diff.z -= box[2];
+  bool search_pbc_images(Fractional&& diff, NearestImage& image) const {
+    int neg_shift[3] = { iround(diff.x), iround(diff.y), iround(diff.z) };
+    diff.x -= neg_shift[0];
+    diff.y -= neg_shift[1];
+    diff.z -= neg_shift[2];
     Position orth_diff = orthogonalize_difference(diff);
     double dsq = orth_diff.length_sq();
     if (dsq < image.dist_sq) {
       image.dist_sq = dsq;
       for (int j = 0; j < 3; ++j)
-        image.box[j] = box[j];
+        image.pbc_shift[j] = -neg_shift[j];
       return true;
     }
     return false;
   }
 
-  SymImage find_nearest_image(const Position& ref, const Position& pos,
-                              Asu asu) const {
-    SymImage image;
+  NearestImage find_nearest_image(const Position& ref, const Position& pos, Asu asu) const {
+    NearestImage image;
     if (asu == Asu::Different)
       image.dist_sq = INFINITY;
     else
@@ -331,11 +449,11 @@ struct UnitCell {
     Fractional fref = fractionalize(ref);
     search_pbc_images(fpos - fref, image);
     if (asu == Asu::Different &&
-        image.box[0] == 0 && image.box[1] == 0 && image.box[2] == 0)
+        image.pbc_shift[0] == 0 && image.pbc_shift[1] == 0 && image.pbc_shift[2] == 0)
       image.dist_sq = INFINITY;
     for (int n = 0; n != static_cast<int>(images.size()); ++n)
       if (search_pbc_images(images[n].apply(fpos) - fref, image))
-        image.sym_id = n + 1;
+        image.sym_idx = n + 1;
     return image;
   }
 
@@ -349,19 +467,21 @@ struct UnitCell {
     }
   }
 
-  SymImage find_nearest_pbc_image(const Position& ref, const Position& pos,
-                                  int image_idx) const {
-    SymImage sym_image;
+  NearestImage find_nearest_pbc_image(const Fractional& fref, Fractional fpos,
+                                      int image_idx) const {
+    NearestImage sym_image;
     sym_image.dist_sq = INFINITY;
-    sym_image.sym_id = image_idx;
-    Fractional fref = fractionalize(ref);
-    Fractional fpos = fractionalize(pos);
+    sym_image.sym_idx = image_idx;
     apply_transform(fpos, image_idx, false);
     if (is_crystal())
       search_pbc_images(fpos - fref, sym_image);
     else
       sym_image.dist_sq = orthogonalize_difference(fpos - fref).length_sq();
     return sym_image;
+  }
+  NearestImage find_nearest_pbc_image(const Position& ref, const Position& pos,
+                                      int image_idx) const {
+    return find_nearest_pbc_image(fractionalize(ref), fractionalize(pos), image_idx);
   }
 
   Position orthogonalize_in_pbc(const Position& ref,
@@ -377,7 +497,8 @@ struct UnitCell {
     return orthogonalize_in_pbc(ref, fpos);
   }
 
-  // return number of nearby symmetry mates (0 = none, 3 = 4-fold axis, etc)
+  /// Counts nearby symmetry mates (0 = none, 3 = 4-fold axis, etc).
+  /// \pre is_crystal()
   int is_special_position(const Fractional& fpos, double max_dist) const {
     const double max_dist_sq = max_dist * max_dist;
     int n = 0;
@@ -392,8 +513,8 @@ struct UnitCell {
     return is_special_position(fractionalize(pos), max_dist);
   }
 
-  // Calculate 1/d^2 for specified hkl reflection.
-  // 1/d^2 = (2*sin(theta)/lambda)^2
+  /// Calculate 1/d^2 for specified hkl reflection.
+  /// 1/d^2 = (2*sin(theta)/lambda)^2
   // The indices are integers, but they may be stored as floating-point
   // numbers (MTZ format) so we use double to avoid conversions.
   double calculate_1_d2_double(double h, double k, double l) const {
@@ -408,27 +529,28 @@ struct UnitCell {
     return calculate_1_d2_double(hkl[0], hkl[1], hkl[2]);
   }
 
-  // Calculate d-spacing.
-  // d = lambda/(2*sin(theta))
+  /// Calculate d-spacing.
+  /// d = lambda/(2*sin(theta))
   double calculate_d(const Miller& hkl) const {
     return 1.0 / std::sqrt(calculate_1_d2(hkl));
   }
 
-  // Calculate (sin(theta)/lambda)^2 = d*^2/4
+  /// Calculate (sin(theta)/lambda)^2 = d*^2/4
   double calculate_stol_sq(const Miller& hkl) const {
     return 0.25 * calculate_1_d2(hkl);
   }
 
-  // https://dictionary.iucr.org/Metric_tensor
+  /// https://dictionary.iucr.org/Metric_tensor
   SMat33<double> metric_tensor() const {
-    double cos_alpha = alpha == 90. ? 0. : std::cos(rad(alpha));
-    return {a*a, b*b, c*c, a*orth.mat[0][1], a*orth.mat[0][2], b*c*cos_alpha};
+    // the order in SMat33 is ... m12 m13 m23 -> a.a b.b c.c a.b a.c b.c
+    return {a*a, b*b, c*c, a*orth.mat[0][1], a*orth.mat[0][2], b*c*cos_alpha()};
   }
 
   SMat33<double> reciprocal_metric_tensor() const {
     return {ar*ar, br*br, cr*cr, ar*br*cos_gammar, ar*cr*cos_betar, br*cr*cos_alphar};
   }
 
+  /// Returns reciprocal unit cell.
   UnitCell reciprocal() const {
     auto acosd = [](double x) { return deg(std::acos(x)); };
     return UnitCell(ar, br, cr,
@@ -437,6 +559,13 @@ struct UnitCell {
 
   Miller get_hkl_limits(double dmin) const {
     return {{int(a / dmin), int(b / dmin), int(c / dmin)}};
+  }
+
+  Mat33 primitive_orth_matrix(char centring_type) const {
+    if (centring_type == 'P')
+      return orth.mat;
+    Mat33 c2p = rot_as_mat33(centred_to_primitive(centring_type));
+    return orth.mat.multiply(c2p);
   }
 };
 

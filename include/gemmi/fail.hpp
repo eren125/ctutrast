@@ -5,9 +5,28 @@
 #ifndef GEMMI_FAIL_HPP_
 #define GEMMI_FAIL_HPP_
 
+#include <cerrno>     // for errno
 #include <stdexcept>  // for runtime_error
+#include <system_error> // for system_error
 #include <string>
 #include <utility>    // for forward
+
+#ifdef  __INTEL_COMPILER
+// warning #2196: routine is both "inline" and "noinline"
+# pragma warning disable 2196
+#endif
+#if defined(__GNUG__) && !defined(__clang__)
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wattributes"
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+# define GEMMI_COLD __attribute__((cold))
+#elif defined(_MSC_VER)
+# define GEMMI_COLD __declspec(noinline)
+#else
+# define GEMMI_COLD __attribute__((noinline))
+#endif
 
 namespace gemmi {
 
@@ -19,11 +38,18 @@ void fail(std::string&& str, T&& arg1, Args&&... args) {
   str += arg1;
   fail(std::move(str), std::forward<Args>(args)...);
 }
-template<typename T, typename... Args> [[noreturn]]
-void fail(const std::string& str, T&& arg1, Args&&... args) {
-  fail(str + arg1, std::forward<Args>(args)...);
-}
 
+[[noreturn]]
+inline GEMMI_COLD void fail(const char* msg) { throw std::runtime_error(msg); }
+
+[[noreturn]]
+inline GEMMI_COLD void sys_fail(const std::string& msg) {
+  throw std::system_error(errno, std::system_category(), msg);
+}
+[[noreturn]]
+inline GEMMI_COLD void sys_fail(const char* msg) {
+  throw std::system_error(errno, std::system_category(), msg);
+}
 
 // unreachable() is used to silence GCC -Wreturn-type and hint the compiler
 [[noreturn]] inline void unreachable() {
@@ -33,6 +59,10 @@ void fail(const std::string& str, T&& arg1, Args&&... args) {
   __assume(0);
 #endif
 }
+
+#if defined(__GNUG__) && !defined(__clang__)
+# pragma GCC diagnostic pop
+#endif
 
 } // namespace gemmi
 #endif

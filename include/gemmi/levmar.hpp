@@ -45,7 +45,7 @@ inline void jordan_solve(std::vector<double>& a, std::vector<double>& b) {
       // If it's the same about i-th row, and b[i]==0, let x[i]==0.
       for (int j = i; j < n; j++)
         if (a[n * i + j] != 0. || b[i] != 0.)
-          fail("Trying to reverse singular matrix. Column ", i, " is zeroed.");
+          fail("Trying to reverse singular matrix. Column ", std::to_string(i), " is zeroed.");
       continue; // x[i]=b[i], b[i]==0
     }
     // interchanging rows
@@ -72,14 +72,14 @@ inline void jordan_solve(std::vector<double>& a, std::vector<double>& b) {
 
 
 #ifdef GEMMI_DEBUG_LEVMAR
-void debug_print(const std::string& name, std::vector<double> &a) {
+inline void debug_print(const std::string& name, std::vector<double> &a) {
   fprintf(stderr, " %s:", name.c_str());
   for (double& x : a)
     fprintf(stderr, " %g", x);
   fprintf(stderr, "\n");
 }
 #else
-void debug_print(const std::string&, std::vector<double>&) {}
+inline void debug_print(const std::string&, std::vector<double>&) {}
 #endif
 
 struct LevMar {
@@ -153,7 +153,7 @@ struct LevMar {
 
         if (wssr == 0)
           break;
-        // termination criterium: negligible change of wssr
+        // termination criterion: negligible change of wssr
         if (rel_change < stop_rel_change) {
           if (++small_change_counter >= 2)
             break;
@@ -163,7 +163,7 @@ struct LevMar {
         this->compute_derivatives(target);
         lambda *= lambda_down_factor;
       } else { // worse fitting
-        if (lambda > lambda_limit) // termination criterium: large lambda
+        if (lambda > lambda_limit) // termination criterion: large lambda
           break;
         lambda *= lambda_up_factor;
       }

@@ -51,7 +51,7 @@ get_anisotropic_u(cif::Block& block) {
 }
 
 inline
-std::vector<std::string> transform_tags(std::string mstr, std::string vstr) {
+std::vector<std::string> transform_tags(const std::string& mstr, const std::string& vstr) {
   return {mstr + "[1][1]", mstr + "[1][2]", mstr + "[1][3]", vstr + "[1]",
           mstr + "[2][1]", mstr + "[2][2]", mstr + "[2][3]", vstr + "[2]",
           mstr + "[3][1]", mstr + "[3][2]", mstr + "[3][3]", vstr + "[3]"};
@@ -218,7 +218,7 @@ inline void read_connectivity(cif::Block& block, Structure& st) {
     if (row.has2(kSym1) && row.has2(kSym2)) {
       c.asu = (row.str(kSym1) == row.str(kSym2) ? Asu::Same : Asu::Different);
     }
-    copy_double(row, 16, c.reported_distance);
+    copy_double(row, kDistValue, c.reported_distance);
     for (int i = 0; i < 2; ++i) {
       AtomAddress& a = (i == 0 ? c.partner1 : c.partner2);
       if (row.has(kAuthAsymId+i) && row.has(kAuthSeqId+i)) {
@@ -358,6 +358,73 @@ inline void fill_residue_entity_type(Structure& st) {
       }
 }
 
+inline void read_sifts_unp(cif::Block& block, Structure& st) {
+  enum { kEntityId=0, kAsymId, kSeqIdOrdinal, kSeqId, kObserved,
+         kUnpRes, kUnpNum, kUnpAcc };
+  cif::Table table = block.find("_pdbx_sifts_xref_db.", {
+      "entity_id", "asym_id", "seq_id_ordinal", "seq_id", "observed",
+      "unp_res", "unp_num", "unp_acc"});
+  if (!table.ok())
+    return;
+  for (Model& model : st.models) {
+    Entity* ent = nullptr;
+    ResidueSpan polymer;
+    Residue* res = nullptr;
+    std::string unp_acc;
+    SiftsUnpResidue unp;
+    for (const auto row : table) {
+      if (row[kSeqIdOrdinal] != "1" || row[kObserved][0] != 'y')
+        continue;
+      if (cif::is_null(row[kUnpAcc]) || cif::is_null(row[kUnpNum]))
+        continue;
+      bool update_acc_index = false;
+      if (!ent || row[kEntityId] != ent->name) {
+        ent = st.get_entity(row[kEntityId]);
+        if (!ent)
+          fail("_pdbx_sifts_xref_db: entity_id not found: " + row[kEntityId]);
+        update_acc_index = true;
+      }
+      if (row[kUnpAcc] != unp_acc) {
+        unp_acc = row.str(kUnpAcc);
+        update_acc_index = true;
+      }
+      if (update_acc_index) {
+        auto& vec = ent->sifts_unp_acc;
+        auto it = std::find(vec.begin(), vec.end(), unp_acc);
+        unp.acc_index = std::uint8_t(it - vec.begin());
+        if (it == vec.end())
+          vec.push_back(unp_acc);
+      }
+      if (!polymer || row[kAsymId] != polymer.front().subchain) {
+        polymer = model.get_subchain(row[kAsymId]);
+        if (!polymer)
+          fail("_pdbx_sifts_xref_db: asym_id not found: " + row[kAsymId]);
+        res = polymer.begin();
+      } else if (res == polymer.end()) {
+        res = polymer.begin();
+      }
+      int label_seq = cif::as_int(row[kSeqId]);
+      if (res->label_seq != label_seq) {
+        res = polymer.begin();
+        while (res->label_seq != label_seq) {
+          ++res;
+          if (res == polymer.end())
+            fail("_pdbx_sifts_xref_db: seq_id not found: " + row[kSeqId]);
+        }
+      }
+      unp.res = cif::as_char(row[kUnpRes], '\0');
+      int num = cif::as_int(row[kUnpNum]);
+      unp.num = (std::uint16_t) num;
+      if (num != (int)unp.num)
+        fail("_pdbx_sifts_xref_db.unp_num: " + row[kUnpNum]);
+      while (res->label_seq == label_seq && res != polymer.end()) {
+        res->sifts_unp = unp;
+        ++res;
+      }
+    }
+  }
+}
+
 inline
 DiffractionInfo* find_diffrn(Metadata& meta, const std::string& diffrn_id) {
   for (CrystalInfo& crystal_info : meta.crystals)
@@ -376,7 +443,7 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
   set_cell_from_mmcif(block, st.cell);
   st.spacegroup_hm = cif::as_string(impl::find_spacegroup_hm_value(block));
 
-  auto add_info = [&](std::string tag) {
+  auto add_info = [&](const std::string& tag) {
     bool first = true;
     for (const std::string& v : block.find_values(tag))
       if (!cif::is_null(v)) {
@@ -401,6 +468,10 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
     st.info[new_date_tag] = st.info[old_date_tag];
   add_info("_struct_keywords.pdbx_keywords");
   add_info("_struct_keywords.text");
+
+  for (const std::string& v : block.find_values("_audit_author.name"))
+    if (!cif::is_null(v))
+      st.meta.authors.push_back(cif::as_string(v));
 
   for (auto row : block.find("_refine.", {"pdbx_refine_id",           // 0
                                           "?ls_d_res_high",           // 1
@@ -532,6 +603,10 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
     if (tr.is_identity())
       // ignore identity, but store its id so we can write it back to mmCIF
       st.info["_struct_ncs_oper.id"] = op.str(12);
+    else if (tr.has_nan())
+      // As of 2022 some entries (7qb5, 6tsd) have incomplete _struct_ncs_oper.
+      // It is safer to skip them.
+      continue;
     else
       st.ncs.push_back({op.str(12), given, tr});
   }
@@ -558,9 +633,10 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
 
   // atom list
   enum { kId=0, kGroupPdb, kSymbol, kLabelAtomId, kAltId, kLabelCompId,
-         kLabelAsymId, kLabelSeqId, kInsCode, kX, kY, kZ, kOcc, kBiso, kCharge,
+         kLabelAsymId, kLabelEntityId, kLabelSeqId, kInsCode,
+         kX, kY, kZ, kOcc, kBiso, kCharge,
          kAuthSeqId, kAuthCompId, kAuthAsymId, kAuthAtomId, kModelNum,
-         kCalcFlag, kTlsGroupId };
+         kCalcFlag, kTlsGroupId, kHdMixture };
   cif::Table atom_table = block.find("_atom_site.",
                                      {"id",
                                       "?group_PDB",
@@ -569,6 +645,7 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
                                       "label_alt_id",
                                       "?label_comp_id",
                                       "label_asym_id",
+                                      "?label_entity_id",
                                       "?label_seq_id",
                                       "?pdbx_PDB_ins_code",
                                       "Cartn_x",
@@ -584,6 +661,7 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
                                       "?pdbx_PDB_model_num",
                                       "?calc_flag",
                                       "?pdbx_tls_group_id",
+                                      "?ccp4_hd_mixture",
                                      });
   if (atom_table.length() != 0) {
     const int kAsymId = atom_table.first_of(kAuthAsymId, kLabelAsymId);
@@ -594,6 +672,8 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
       fail("Neither _atom_site.label_comp_id nor auth_comp_id found");
     if (!atom_table.has_column(kAtomId))
       fail("Neither _atom_site.label_atom_id nor auth_atom_id found");
+
+    st.has_hd_mixture = atom_table.has_column(kHdMixture);
 
     Model *model = nullptr;
     Chain *chain = nullptr;
@@ -621,6 +701,8 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
           if (row.has2(kLabelSeqId))
             resi->label_seq = cif::as_int(row[kLabelSeqId]);
           resi->subchain = row.str(kLabelAsymId);
+          if (row.has2(kLabelEntityId))
+            resi->entity_id = row.str(kLabelEntityId);
           // don't check if group_PDB is consistent, it's not that important
           if (row.has2(kGroupPdb))
             for (int i = 0; i < 2; ++i) { // first character could be " or '
@@ -642,6 +724,8 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
       // but in all the files it is a serial number; its value is not essential,
       // so we just ignore non-integer ids.
       atom.serial = string_to_int(row[kId], false);
+      if (st.has_hd_mixture)
+        atom.mixture = (float) cif::as_number(row[kHdMixture], 1.0);
       if (row.has2(kCalcFlag)) {
         const std::string& cf = row[kCalcFlag];
         if (cf[0] == 'c')
@@ -726,7 +810,7 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
       if (row.has(4))
         dbref.accession_code = row.str(4);
       if (row.has(5))
-      dbref.isoform = row.str(5);
+        dbref.isoform = row.str(5);
       constexpr int None = SeqId::OptionalNum::None;
       dbref.label_seq_begin = cif::as_int(seq[1], None);
       dbref.label_seq_end = cif::as_int(seq[2], None);
@@ -739,9 +823,20 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
     }
   }
 
-  for (auto row : block.find("_struct_asym.", {"id", "entity_id"}))
-    if (Entity* ent = st.get_entity(row.str(1)))
-      ent->subchains.push_back(row.str(0));
+  cif::Table s_asym_table = block.find("_struct_asym.", {"id", "entity_id"});
+  if (s_asym_table.ok()) {
+    for (auto row : s_asym_table)
+      if (Entity* ent = st.get_entity(row.str(1)))
+        ent->subchains.push_back(row.str(0));
+  } else if (!st.models.empty()) {
+    for (const Chain& chain : st.models[0].chains)
+      for (const ConstResidueSpan& sub : chain.subchains()) {
+        const Residue& r = sub.front();
+        if (Entity* ent = st.get_entity(r.entity_id))
+          if (!in_vector(r.subchain, ent->subchains))
+            ent->subchains.push_back(r.subchain);
+      }
+  }
 
   fill_residue_entity_type(st);
 
@@ -766,6 +861,7 @@ inline Structure make_structure_from_block(const cif::Block& block_) {
   st.sheets = read_sheets(block);
   read_connectivity(block, st);
   st.assemblies = read_assemblies(block);
+  read_sifts_unp(block, st);
 
   return st;
 }
@@ -776,14 +872,17 @@ inline Structure make_structure_from_block(const cif::Block& block) {
   return impl::make_structure_from_block(block);
 }
 
-inline Structure make_structure(const cif::Document& doc) {
+inline Structure make_structure(cif::Document&& doc, cif::Document* save_doc=nullptr) {
   // mmCIF files for deposition may have more than one block:
   // coordinates in the first block and restraints in the others.
   for (size_t i = 1; i < doc.blocks.size(); ++i)
     if (doc.blocks[i].has_tag("_atom_site.id"))
       fail("2+ blocks are ok if only the first one has coordinates;\n"
            "_atom_site in block #" + std::to_string(i+1) + ": " + doc.source);
-  return make_structure_from_block(doc.blocks.at(0));
+  Structure st = make_structure_from_block(doc.blocks.at(0));
+  if (save_doc)
+    *save_doc = std::move(doc);
+  return st;
 }
 
 } // namespace gemmi

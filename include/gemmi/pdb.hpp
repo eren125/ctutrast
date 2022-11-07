@@ -15,60 +15,25 @@
 
 #include <algorithm>  // for swap
 #include <cctype>     // for isalpha
-#include <cstdio>     // for FILE, size_t
+#include <cstdio>     // for stdin, size_t
 #include <cstdlib>    // for strtol
-#include <cstring>    // for memcpy, strstr, strchr, strcmp
-#include <map>        // for map
-#include <string>     // for string
-#include <vector>     // for vector
+#include <cstring>    // for memcpy, strstr, strchr
 #include <unordered_map>
 
-#include "atox.hpp"     // for string_to_int
-#include "atof.hpp"     // for fast_from_chars
-#include "fail.hpp"     // for fail
 #include "fileutil.hpp" // for path_basename, file_open
 #include "input.hpp"    // for FileStream
-#include "model.hpp"
-#include "polyheur.hpp" // for assign_subchains
-#include "util.hpp"
+#include "model.hpp"    // for Atom, Structure, ...
+#include "polyheur.hpp" // for assign_subchain_names
+#include "remarks.hpp"  // for read_metadata_from_remarks, read_int, ...
 
 namespace gemmi {
 
 namespace pdb_impl {
 
-inline int read_int(const char* p, int field_length) {
-  return string_to_int(p, false, field_length);
-}
-
 template<int N> int read_base36(const char* p) {
   char zstr[N+1] = {0};
   std::memcpy(zstr, p, N);
   return std::strtol(zstr, nullptr, 36);
-}
-
-inline double read_double(const char* p, int field_length) {
-  double d = 0.;
-  // we don't check for errors here
-  fast_from_chars(p, p + field_length, d);
-  return d;
-}
-
-inline std::string read_string(const char* p, int field_length) {
-  // left trim
-  while (field_length != 0 && is_space(*p)) {
-    ++p;
-    --field_length;
-  }
-  // EOL/EOF ends the string
-  for (int i = 0; i < field_length; ++i)
-    if (p[i] == '\n' || p[i] == '\r' || p[i] == '\0') {
-      field_length = i;
-      break;
-    }
-  // right trim
-  while (field_length != 0 && is_space(p[field_length-1]))
-    --field_length;
-  return std::string(p, field_length);
 }
 
 // Compare the first 4 letters of s, ignoring case, with uppercase record.
@@ -139,31 +104,20 @@ inline int read_serial(const char* ptr) {
                       : read_base36<5>(ptr) - 16796160 + 100000;
 }
 
-// "28-MAR-07" -> "2007-03-28"
-// (we also accept less standard format "28-Mar-2007" as used by BUSTER)
-// We do not check if the date is correct.
-// The returned value is one of:
-//   DDDD-DD-DD - possibly correct date,
-//   DDDD-xx-DD - unrecognized month,
-//   empty string - the digits were not there.
-inline std::string pdb_date_format_to_iso(const std::string& date) {
-  const char months[] = "JAN01FEB02MAR03APR04MAY05JUN06"
-                        "JUL07AUG08SEP09OCT10NOV11DEC122222";
-  if (date.size() < 9 || !is_digit(date[0]) || !is_digit(date[1]) ||
-                         !is_digit(date[7]) || !is_digit(date[8]))
-    return std::string();
-  std::string iso = "xxxx-xx-xx";
-  if (date.size() >= 11 && is_digit(date[9]) && is_digit(date[10])) {
-    std::memcpy(&iso[0], &date[7], 4);
-  } else {
-    std::memcpy(&iso[0], (date[7] > '6' ? "19" : "20"), 2);
-    std::memcpy(&iso[2], &date[7], 2);
-  }
-  char month[4] = {alpha_up(date[3]), alpha_up(date[4]), alpha_up(date[5]), '\0'};
-  if (const char* m = std::strstr(months, month))
-    std::memcpy(&iso[5], m + 3, 2);
-  std::memcpy(&iso[8], &date[0], 2);
-  return iso;
+// move initials after comma, as in mmCIF (A.-B.DOE -> DOE, A.-B.), see
+// https://www.wwpdb.org/documentation/file-format-content/format33/sect2.html#AUTHOR
+inline void change_author_name_format_to_mmcif(std::string& name) {
+  // If the AUTHOR record has comma followed by space we get leading space here
+  while (name[0] == ' ')
+    name.erase(name.begin());
+  size_t pos = 0;
+  // Initials may have multiple letters (e.g. JU. or PON.)
+  // but should not have space after dot.
+  for (size_t i = 1; i < pos+4 && i+1 < name.size(); ++i)
+    if (name[i] == '.' && name[i+1] != ' ')
+      pos = i+1;
+  if (pos > 0)
+    name = name.substr(pos) + ", " + name.substr(0, pos);
 }
 
 inline Asu compare_link_symops(const std::string& record) {
@@ -254,15 +208,9 @@ void process_conn(Structure& st, const std::vector<std::string>& conn_records) {
   }
 }
 
-template<size_t N>
-inline bool same_str(const std::string& s, const char (&literal)[N]) {
-  return s.size() == N - 1 && std::strcmp(s.c_str(), literal) == 0;
-}
-
-template<typename Input>
-Structure read_pdb_from_input(Input&& infile, const std::string& source,
-                              const PdbReadOptions& options) {
-  using namespace pdb_impl;
+template<typename Stream>
+Structure read_pdb_from_stream(Stream&& stream, const std::string& source,
+                               const PdbReadOptions& options) {
   int line_num = 0;
   auto wrong = [&line_num](const std::string& msg) {
     fail("Problem in line " + std::to_string(line_num) + ": " + msg);
@@ -271,8 +219,7 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
   st.input_format = CoorFormat::Pdb;
   st.name = path_basename(source, {".gz", ".pdb"});
   std::vector<std::string> conn_records;
-  st.models.emplace_back("1");
-  Model *model = &st.models.back();
+  Model *model = nullptr;
   Chain *chain = nullptr;
   Residue *resi = nullptr;
   char line[122] = {0};
@@ -282,16 +229,17 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
   bool after_ter = false;
   Transform matrix;
   std::unordered_map<ResidueId, int> resmap;
-  while (size_t len = copy_line_from_stream(line, max_line_length+1, infile)) {
+  while (size_t len = copy_line_from_stream(line, max_line_length+1, stream)) {
     ++line_num;
     if (is_record_type(line, "ATOM") || is_record_type(line, "HETATM")) {
-      if (len < 66)
+      if (len < 55)
         wrong("The line is too short to be correct:\n" + std::string(line));
       std::string chain_name = read_string(line+20, 2);
       ResidueId rid = read_res_id(line+22, line+17);
 
       if (!chain || chain_name != chain->name) {
         if (!model) {
+          // A single model usually doesn't have the MODEL record. Also,
           // MD trajectories may have frames separated by ENDMDL without MODEL.
           std::string name = std::to_string(st.models.size() + 1);
           if (st.find_model(name))
@@ -339,14 +287,27 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
       atom.pos.x = read_double(line+30, 8);
       atom.pos.y = read_double(line+38, 8);
       atom.pos.z = read_double(line+46, 8);
-      atom.occ = (float) read_double(line+54, 6);
-      atom.b_iso = (float) read_double(line+60, 6);
+      if (len > 58)
+        atom.occ = (float) read_double(line+54, 6);
+      if (len > 64)
+        atom.b_iso = (float) read_double(line+60, 6);
       if (len > 76 && (std::isalpha(line[76]) || std::isalpha(line[77])))
         atom.element = Element(line + 76);
       // Atom names HXXX are ambiguous, but Hg, He, Hf, Ho and Hs (almost)
       // never have 4-character names, so H is assumed.
       else if (alpha_up(line[12]) == 'H' && line[15] != ' ')
         atom.element = El::H;
+      // Similarly Deuterium (DXXX), but here alternatives are Dy, Db and Ds.
+      // Only Dysprosium is present in the PDB - in a single entry as of 2022.
+      else if (alpha_up(line[12]) == 'D' && line[15] != ' ')
+        atom.element = El::D;
+      // Old versions of the PDB format had hydrogen names such as "1HB ".
+      // Some MD files use similar names for other elements ("1C4A" -> C).
+      else if (is_digit(line[12]))
+        atom.element = impl::find_single_letter_element(line[13]);
+      // ... or it can be "C210"
+      else if (is_digit(line[13]))
+        atom.element = impl::find_single_letter_element(line[12]);
       else
         atom.element = Element(line + 12);
       atom.charge = (len > 78 ? read_charge(line[78], line[79]) : 0);
@@ -377,7 +338,7 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
         continue;
       int num = read_int(line + 7, 3);
       // By default, we only look for resolution and REMARK 350.
-      // Other parsing of remarks is in interpret_remarks().
+      // Other remarks are parsed in read_metadata_from_remarks()
       if (num == 2) {
         if (st.resolution == 0.0 && std::strstr(line, "ANGSTROM"))
           st.resolution = read_double(line + 23, 7);
@@ -404,7 +365,7 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
               opers.back().transform = matrix;
               matrix.set_identity();
             }
-#define CHECK(cpos, text) (colon == line+cpos && starts_with(line+11, text))
+#define CHECK(cpos, text) (colon == line+(cpos) && starts_with(line+11, text))
         } else if (CHECK(44, "AUTHOR DETERMINED")) {
           assembly.author_determined = true;
           assembly.oligomeric_details = read_string(line+45, 35);
@@ -495,6 +456,23 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
     } else if (is_record_type(line, "EXPDTA")) {
       if (len > 10)
         st.info["_exptl.method"] += trim_str(std::string(line+10, len-10-1));
+
+    } else if (is_record_type(line, "AUTHOR") && len > 10) {
+      std::string last;
+      if (!st.meta.authors.empty()) {
+        last = st.meta.authors.back();
+        st.meta.authors.pop_back();
+      }
+      size_t prev_size = st.meta.authors.size();
+      const char* start = skip_blank(line+10);
+      const char* end = rtrim_cstr(start, line+len);
+      split_str_into(std::string(start, end), ',', st.meta.authors);
+      if (!last.empty() && st.meta.authors.size() > prev_size) {
+        // the spaces were trimmed, we may need a space between words
+        if (last.back() != '-' && last.back() != '.')
+          last += ' ';
+        st.meta.authors[prev_size].insert(0, last);
+      }
 
     } else if (is_record_type(line, "CRYST1")) {
       if (len > 54)
@@ -602,23 +580,39 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
     } else if (is_record_type3(line, "END")) {
       break;
     } else if (is_record_type(line, "data")) {
-      if (line[4] == '_' && model && model->chains.empty())
+      if (line[4] == '_' && !model)
         fail("Incorrect file format (perhaps it is cif not pdb?): " + source);
+    } else if (is_record_type(line, "{\"da")) {
+      if (ialpha3_id(line+4) == ialpha3_id("ta_") && !model)
+        fail("Incorrect file format (perhaps it is mmJSON not pdb?): " + source);
     }
   }
 
+  // If we read a PDB header (they can be downloaded from RSCB) we have no
+  // models. User's code may not expect this. Usually, empty model will be
+  // handled more gracefully than no models.
+  if (st.models.empty())
+    st.models.emplace_back("1");
+
   for (Model& mod : st.models)
     for (Chain& ch : mod.chains)
-      if (ch.residues[0].entity_type != EntityType::Unknown) {
+      if (ch.residues[0].entity_type != EntityType::Unknown)
         assign_subchain_names(ch);
-        if (Entity* entity = st.get_entity(ch.name))
-          if (auto polymer = ch.get_polymer())
-            entity->subchains.emplace_back(polymer.subchain_id());
-      }
+
+  for (Chain& ch : st.models[0].chains)
+    if (Entity* entity = st.get_entity(ch.name))
+      if (auto polymer = ch.get_polymer())
+        entity->subchains.emplace_back(polymer.subchain_id());
 
   st.setup_cell_images();
 
   process_conn(st, conn_records);
+
+  for (std::string& name : st.meta.authors)
+    change_author_name_format_to_mmcif(name);
+
+  if (!options.skip_remarks)
+    read_metadata_from_remarks(st);
 
   return st;
 }
@@ -628,13 +622,13 @@ Structure read_pdb_from_input(Input&& infile, const std::string& source,
 inline Structure read_pdb_file(const std::string& path,
                                PdbReadOptions options=PdbReadOptions()) {
   auto f = file_open(path.c_str(), "rb");
-  return pdb_impl::read_pdb_from_input(FileStream{f.get()}, path, options);
+  return pdb_impl::read_pdb_from_stream(FileStream{f.get()}, path, options);
 }
 
 inline Structure read_pdb_from_memory(const char* data, size_t size,
                                       const std::string& name,
                                       PdbReadOptions options=PdbReadOptions()) {
-  return pdb_impl::read_pdb_from_input(MemoryStream(data, size), name, options);
+  return pdb_impl::read_pdb_from_stream(MemoryStream(data, size), name, options);
 }
 
 inline Structure read_pdb_string(const std::string& str,
@@ -647,10 +641,10 @@ inline Structure read_pdb_string(const std::string& str,
 template<typename T>
 inline Structure read_pdb(T&& input, PdbReadOptions options=PdbReadOptions()) {
   if (input.is_stdin())
-    return pdb_impl::read_pdb_from_input(FileStream{stdin}, "stdin", options);
+    return pdb_impl::read_pdb_from_stream(FileStream{stdin}, "stdin", options);
   if (input.is_compressed())
-    return pdb_impl::read_pdb_from_input(input.get_uncompressing_stream(),
-                                         input.path(), options);
+    return pdb_impl::read_pdb_from_stream(input.get_uncompressing_stream(),
+                                          input.path(), options);
   return read_pdb_file(input.path(), options);
 }
 

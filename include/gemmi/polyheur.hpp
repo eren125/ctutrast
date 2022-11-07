@@ -1,15 +1,15 @@
 // Copyright 2017-2018 Global Phasing Ltd.
 //
 // Heuristic methods for working with chains and polymers.
-// Includes also a few well-defined functions, such as removal of hydrogens.
+// Includes also a few well-defined functions, such as removal of waters.
 
 #ifndef GEMMI_POLYHEUR_HPP_
 #define GEMMI_POLYHEUR_HPP_
 
 #include <vector>
-#include <set>
 #include "model.hpp"
 #include "resinfo.hpp"   // for find_tabulated_residue
+#include "calculate.hpp" // for calculate_omega
 #include "util.hpp"      // for vector_remove_if
 
 namespace gemmi {
@@ -37,18 +37,26 @@ inline PolymerType check_polymer_type(const ConstResidueSpan& polymer) {
   aa += counts[ResidueInfo::AA] + counts[ResidueInfo::AAD] +
         counts[ResidueInfo::PAA] + counts[ResidueInfo::MAA];
   na += counts[ResidueInfo::RNA] + counts[ResidueInfo::DNA];
-  if (2 * aa > polymer.size())
+  // Exclude water in case this function is called for the whole chain.
+  size_t total = polymer.size() - counts[ResidueInfo::HOH];
+  if (2 * aa > total)
     return counts[ResidueInfo::AA] >= counts[ResidueInfo::AAD]
            ? PolymerType::PeptideL : PolymerType::PeptideD;
-  if (2 * na > polymer.size()) {
+  if (2 * na > total) {
     if (counts[ResidueInfo::DNA] == 0)
       return PolymerType::Rna;
-    else if (counts[ResidueInfo::RNA] == 0)
+    if (counts[ResidueInfo::RNA] == 0)
       return PolymerType::Dna;
-    else
-      return PolymerType::DnaRnaHybrid;
+    return PolymerType::DnaRnaHybrid;
   }
   return PolymerType::Unknown;
+}
+
+inline PolymerType get_or_check_polymer_type(const Entity* ent,
+                                             const ConstResidueSpan& polymer) {
+  if (ent && ent->polymer_type != PolymerType::Unknown)
+    return ent->polymer_type;
+  return check_polymer_type(polymer);
 }
 
 inline double calculate_sequence_weight(const std::vector<std::string>& seq,
@@ -96,17 +104,37 @@ inline bool is_polymer_residue(const Residue& res, PolymerType ptype) {
   }
 }
 
+struct AtomNameElement { std::string atom_name; El el; };
+
+inline std::vector<AtomNameElement> get_mainchain_atoms(PolymerType ptype) {
+  if (is_polynucleotide(ptype))
+    return {{"P", El::P}, {"O5'", El::O}, {"C5'", El::C},
+            {"C4'", El::C}, {"O4'", El::O}, {"C3'", El::C}, {"O3'", El::O},
+            {"C2'", El::C}, {"O2'", El::O}, {"C1'", El::C}};
+  return {{"N", El::N}, {"CA", El::C}, {"C", El::C}, {"O", El::O}};
+}
+
+/// distance-based check for peptide bond
+inline bool in_peptide_bond_distance(const Atom* a1, const Atom* a2) {
+  return a1 && a2 && a1->pos.dist_sq(a2->pos) < sq(1.341 * 1.5);
+}
+inline bool have_peptide_bond(const Residue& r1, const Residue& r2) {
+  return in_peptide_bond_distance(r1.get_c(), r2.get_n());
+}
+
+/// distance-based check for phosphodiester bond between nucleotide
+inline bool in_nucleotide_bond_distance(const Atom* a1, const Atom* a2) {
+  return a1 && a2 && a1->pos.dist_sq(a2->pos) < sq(1.6 * 1.5);
+}
+inline bool have_nucleotide_bond(const Residue& r1, const Residue& r2) {
+  return in_nucleotide_bond_distance(r1.get_o3prim(), r2.get_p());
+}
+
 inline bool are_connected(const Residue& r1, const Residue& r2, PolymerType ptype) {
-  if (is_polypeptide(ptype)) {
-    const Atom* a1 = r1.get_c();
-    const Atom* a2 = r2.get_n();
-    return a1 && a2 && a1->pos.dist_sq(a2->pos) < sq(1.341 * 1.5);
-  }
-  if (is_polynucleotide(ptype)) {
-    const Atom* a1 = r1.get_o3prim();
-    const Atom* a2 = r2.get_p();
-    return a1 && a2 && a1->pos.dist_sq(a2->pos) < sq(1.6 * 1.5);
-  }
+  if (is_polypeptide(ptype))
+    return have_peptide_bond(r1, r2);
+  if (is_polynucleotide(ptype))
+    return have_nucleotide_bond(r1, r2);
   return false;
 }
 
@@ -200,6 +228,7 @@ inline void add_entity_types(Structure& st, bool overwrite) {
 // somewhat different rules (it was written in 1990's before PDBx/mmCIF).
 //
 // Here we use naming and rules different from both wwPDB and makecif.
+// Note: call add_entity_types() first.
 inline void assign_subchain_names(Chain& chain) {
   for (Residue& res : chain.residues) {
     res.subchain = chain.name;
@@ -207,8 +236,9 @@ inline void assign_subchain_names(Chain& chain) {
       case EntityType::Polymer:    res.subchain += "poly";          break;
       case EntityType::NonPolymer: res.subchain += res.seqid.str(); break;
       case EntityType::Water:      res.subchain += "wat";           break;
-      case EntityType::Branched:  // FIXME
-      case EntityType::Unknown: break; // should not happen
+      case EntityType::Branched:  break; // FIXME
+      case EntityType::Unknown:
+        fail("assign_subchain_names(): missing entity_type in chain " + chain.name);
     }
   }
 }
@@ -216,10 +246,8 @@ inline void assign_subchain_names(Chain& chain) {
 inline void assign_subchains(Structure& st, bool force) {
   for (Model& model : st.models)
     for (Chain& chain : model.chains)
-      if (force || !has_subchains_assigned(chain)) {
-        add_entity_types(chain, false);
+      if (force || !has_subchains_assigned(chain))
         assign_subchain_names(chain);
-      }
 }
 
 inline void ensure_entities(Structure& st) {
@@ -270,47 +298,28 @@ inline void deduplicate_entities(Structure& st) {
 }
 
 inline void setup_entities(Structure& st) {
-  assign_subchains(st, false);
+  add_entity_types(st, /*overwrite=*/false);
+  assign_subchains(st, /*force=*/false);
   ensure_entities(st);
   deduplicate_entities(st);
 }
 
 
-// Remove alternative conformations.
-template<class T> void remove_alternative_conformations(T& obj) {
+/// Assign Residue::is_cis based on omega angle
+template<class T> void assign_cis_flags(T& obj) {
   for (auto& child : obj.children())
-    remove_alternative_conformations(child);
+    assign_cis_flags(child);
 }
-template<> inline void remove_alternative_conformations(Chain& chain) {
-  std::set<SeqId> seqids;
-  for (size_t i = 0; i < chain.residues.size(); ) {
-    if (seqids.insert(chain.residues[i].seqid).second)
-      ++i;
-    else
-      chain.residues.erase(chain.residues.begin() + i);
+inline void assign_cis_flags(Chain& chain) {
+  for (Residue& res : chain.residues) {
+    bool cis = false;
+    if (res.entity_type == EntityType::Polymer)
+      if (const Residue* next = chain.next_residue(res))
+        if (have_peptide_bond(res, *next))
+          if (std::fabs(calculate_omega(res, *next)) < rad(30.))
+            cis = true;
+    res.is_cis = cis;
   }
-  for (Residue& residue : chain.residues) {
-    std::set<std::string> names;
-    for (size_t i = 0; i < residue.atoms.size(); ) {
-      Atom& atom = residue.atoms[i];
-      atom.altloc = '\0';
-      if (names.insert(atom.name).second)
-        ++i;
-      else
-        residue.atoms.erase(residue.atoms.begin() + i);
-    }
-  }
-}
-
-// Remove hydrogens.
-template<class T> void remove_hydrogens(T& obj) {
-  for (auto& child : obj.children())
-    remove_hydrogens(child);
-}
-template<> inline void remove_hydrogens(Residue& res) {
-  vector_remove_if(res.atoms, [](const Atom& a) {
-    return a.element == El::H || a.element == El::D;
-  });
 }
 
 // Remove waters. It may leave empty chains.
@@ -324,7 +333,11 @@ template<> inline void remove_waters(Chain& ch) {
 }
 
 // Remove ligands and waters. It may leave empty chains.
-inline void remove_ligands_and_waters(Chain& ch) {
+template<class T> void remove_ligands_and_waters(T& obj) {
+  for (auto& child : obj.children())
+    remove_ligands_and_waters(child);
+}
+template<> inline void remove_ligands_and_waters(Chain& ch) {
   PolymerType ptype = check_polymer_type(ch.whole());
   vector_remove_if(ch.residues, [&](const Residue& res) {
       if (res.entity_type == EntityType::Unknown) {
@@ -333,22 +346,6 @@ inline void remove_ligands_and_waters(Chain& ch) {
       }
       return res.entity_type != EntityType::Polymer;
   });
-}
-
-inline void remove_ligands_and_waters(Structure& st) {
-  for (Model& model : st.models)
-    for (Chain& chain : model.chains)
-      remove_ligands_and_waters(chain);
-}
-
-// Remove empty chains.
-inline void remove_empty_chains(Model& m) {
-  vector_remove_if(m.chains,
-                   [](const Chain& chain) { return chain.residues.empty(); });
-}
-inline void remove_empty_chains(Structure& st) {
-  for (Model& model : st.models)
-    remove_empty_chains(model);
 }
 
 // Trim to alanine. Returns true if trimmed, false if it's (likely) not AA.
@@ -371,27 +368,6 @@ inline bool trim_to_alanine(Residue& res) {
 inline void trim_to_alanine(Chain& chain) {
   for (Residue& res : chain.residues)
     trim_to_alanine(res);
-}
-
-// Remove anisotropic ADP
-template<class T> void remove_anisou(T& obj) {
-  for (auto& child : obj.children())
-    remove_anisou(child);
-}
-template<> inline void remove_anisou(Atom& atom) {
-  atom.aniso = {0, 0, 0, 0, 0, 0};
-}
-
-// Set absent ANISOU to value from B_iso
-template<class T> void ensure_anisou(T& obj) {
-  for (auto& child : obj.children())
-    ensure_anisou(child);
-}
-template<> inline void ensure_anisou(Atom& atom) {
-  if (!atom.aniso.nonzero()) {
-    float u = float(1. / gemmi::u_to_b() * atom.b_iso);
-    atom.aniso = {u, u, u, 0.f, 0.f, 0.f};
-  }
 }
 
 } // namespace gemmi

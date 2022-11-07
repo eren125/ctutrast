@@ -15,9 +15,8 @@
 #include "third_party/sajson.h"
 
 #include "cifdoc.hpp"   // for Document, etc
-#include "fail.hpp"     // for fail
-#include "fileutil.hpp" // for file_open
-#include "input.hpp"    // for CharArray
+#include "fail.hpp"     // for fail, sys_fail
+#include "fileutil.hpp" // for read_file_into_buffer
 
 namespace gemmi {
 namespace cif {
@@ -109,43 +108,11 @@ inline Document read_mmjson_insitu(char* buffer, size_t size,
   sajson::document json = sajson::parse(sajson::dynamic_allocation(),
                                     sajson::mutable_string_view(size, buffer));
   if (!json.is_valid())
-    fail(name, ":", std::to_string(json.get_error_line()), " error: ",
+    fail(name + ":", std::to_string(json.get_error_line()), " error: ",
          json.get_error_message_as_string());
   fill_document_from_sajson(doc, json);
   doc.source = name;
   return doc;
-}
-
-inline CharArray read_file_into_buffer(const std::string& path) {
-  fileptr_t f = file_open(path.c_str(), "rb");
-  size_t size = file_size(f.get(), path);
-  CharArray buffer(size);
-  if (std::fread(buffer.data(), size, 1, f.get()) != 1)
-    fail(path + ": fread failed");
-  return buffer;
-}
-
-inline CharArray read_stdin_into_buffer() {
-  size_t n = 0;
-  CharArray buffer(16 * 1024);
-  for (;;) {
-    n += std::fread(buffer.data() + n, 1, buffer.size() - n, stdin);
-    if (n != buffer.size()) {
-      buffer.set_size(n);
-      break;
-    }
-    buffer.resize(2*n);
-  }
-  return buffer;
-}
-
-template<typename T>
-inline CharArray read_into_buffer(T&& input) {
-  if (input.is_stdin())
-    return read_stdin_into_buffer();
-  if (input.is_compressed())
-    return input.uncompress_into_buffer();
-  return read_file_into_buffer(input.path());
 }
 
 inline Document read_mmjson_file(const std::string& path) {
