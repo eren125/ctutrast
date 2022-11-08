@@ -7,6 +7,8 @@
 #include <gemmi/ccp4.hpp>
 #include <gemmi/asumask.hpp>
 
+#include <connected-components-3d/cc3d.hpp>
+
 #define R 8.31446261815324e-3 // kJ/mol/K
 
 using namespace std;
@@ -28,55 +30,35 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-double grid_calc_enthalpy_efficient(gemmi::Grid<double> grid, vector<size_t> indexes, double temperature) {
-  double boltzmann_energy_lj = 0;
-  double sum_exp_energy = 0;
-  for (size_t idx: indexes) {
-    double energy = grid.data[idx];
-    double exp_energy = exp(-energy/(R*temperature));
-    sum_exp_energy += exp_energy;
-    boltzmann_energy_lj += exp_energy * energy;
-    }
-  return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-}
-
+using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
   string grid_file = argv[1];
   double temperature = stod(argv[2]);
   double energy_threshold = stod(argv[3]); //kJ/mol
-
   gemmi::Ccp4<double> map;
   map.read_ccp4_file(grid_file);
   double grid_min = map.hstats.dmin;
-  // First identify big channels using an index vector
-  vector<size_t> occupied_idx;
+
+  // Set up a binary 3D array (is channel)
+  size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
+  int* labels = new int[array_size](); 
   size_t idx = 0;
-  for (int w = 0; w != map.grid.nw; ++w)
-    for (int v = 0; v != map.grid.nv; ++v)
-      for (int u = 0; u != map.grid.nu; ++u, ++idx) {
-        double energy = map.grid.data[idx];
-        if (energy < energy_threshold) {
-          occupied_idx.push_back(idx);
-        }
-      }
+  for (size_t i=0; i<array_size; i++){
+    if (map.grid.data[i] < energy_threshold){
+      labels[i] = 1;
+    }
+  } 
+  size_t N = 0;
+  uint16_t* cc_labels = cc3d::connected_components3d<int, uint16_t>(
+  labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
+  cout << N << endl;
 
-  while (!occupied_idx.empty()) {
-    size_t idx = occupied_idx[0];
-    gemmi::Fractional fctr = map.grid.point_to_fractional(map.grid.index_to_point(idx));
-    double radius = 0.3;
-    int du = (int) std::ceil(radius / map.grid.spacing[0]);
-    int dv = (int) std::ceil(radius / map.grid.spacing[1]);
-    int dw = (int) std::ceil(radius / map.grid.spacing[2]);
-    map.grid.use_points_in_box<true>(fctr, du, dv, dw,
-        [&](double& ref, const gemmi::Position& delta, int u, int v, int w) {
-            map.grid.index_q(u,v,w);
-            },true);
-    // cout<< point.u << endl;
-  }
-
-  // double enthalpy_surface = grid_calc_enthalpy(map.grid, energy_threshold, temperature);
-//   double enthalpy_surface = grid_calc_enthalpy_efficient(map.grid, occupied_idx, temperature);
+  for (size_t i=0; i<array_size; i++){
+    if (cc_labels[i]==2 | cc_labels[i]==3){
+      map.grid.data[i] = 1e3;
+    }
+  } 
   // Mask use to remove blocked space
 
   // Calculate diffusion coefficients
