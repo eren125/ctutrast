@@ -9,5 +9,5 @@ structure/*
 grid/*
 !grid/KAXQIL_clean_14_0.6_10.ccp4
 viz/*
-!viz/*py
+!viz/visualize_ccp4.py
 !viz/requirements.txt
