@@ -30,6 +30,20 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
+void printDistinct(uint16_t arr[], int n){
+    // Pick all elements one by one
+    for (size_t i=0; i<n; i++){
+        // Check if the picked element is already printed
+        size_t j;
+        for (j=0; j<i; j++)
+           if (arr[i] == arr[j])
+               break;
+        // If not printed earlier, then print it
+        if (i == j)
+          cout << arr[i] << " ";
+    }
+}
+
 using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
@@ -54,13 +68,8 @@ int main(int argc, char* argv[]) {
   labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
   cout << N << endl;
 
-  for (size_t i=0; i<array_size; i++){
-    if (cc_labels[i]==2 | cc_labels[i]==3){
-      map.grid.data[i] = 1e3;
-    }
-  } 
-  // Mask use to remove blocked space
-
+  // TODO loop over the unique labels and merge them according to pbc
+  // could be done in the code by applying pbc
   // Calculate diffusion coefficients
 
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
