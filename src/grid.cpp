@@ -185,6 +185,7 @@ int main(int argc, char* argv[]) {
       }
 
   // Save grid in ccp4 binary format
+  // TODO Compact the format using asymetric units + masks
   gemmi::Ccp4<double> map;
   map.grid = grid;
   map.setup(NAN, gemmi::MapSetup::ReorderOnly);
