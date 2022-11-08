@@ -3,3 +3,6 @@ c++ -std=c++11 -I./include -O2 src/grid.cpp -o a.out
 ./a.out structure/KAXQIL_clean_14.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 40
 
 Widom value of enthalpy : -44.6297 kJ/mol
+
+# Acknowledgement
+https://github.com/seung-lab/connected-components-3d
