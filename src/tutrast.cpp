@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
   double energy_threshold = stod(argv[3]); //kJ/mol
   gemmi::Ccp4<double> map;
   map.read_ccp4_file(grid_file);
-  double grid_min = map.hstats.dmin;
+  // double grid_min = map.hstats.dmin;
 
   // Set up a binary 3D array (is channel)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
@@ -61,14 +61,24 @@ int main(int argc, char* argv[]) {
   for (size_t i=0; i<array_size; i++){
     if (map.grid.data[i] < energy_threshold){
       labels[i] = 1;
+      // map.grid.data[i]=-40;
     }
   } 
   size_t N = 0;
   uint16_t* cc_labels = cc3d::connected_components3d<int, uint16_t>(
-  labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
+  labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/7, /*N=*/N );
   cout << N << endl;
-
-  // TODO loop over the unique labels and merge them according to pbc
+  // TODO loop over the unique labels and merge them according to pbc (in future change the code to include pbc)
+  // for (uint16_t label_1=1; label_1<N-1; label_1++){
+  //   for (uint16_t label_2=label_1+1; label_2<N; label_2++){
+  //     if ()
+  //   }
+  // }
+  for (size_t i=0; i<array_size; i++) {
+    if (cc_labels[i]==0){map.grid.data[i] = 1e3;}
+    else {map.grid.data[i] = cc_labels[i];}
+  }
+  map.write_ccp4_map("grid/KAXQIL_clean_14_0.1_100_l.ccp4");
   // could be done in the code by applying pbc
   // Calculate diffusion coefficients
 
