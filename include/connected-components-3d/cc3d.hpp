@@ -933,45 +933,45 @@ OUT* connected_components3d_6_pbc(
 
         if (x > 0 && cur == in_labels[loc + M]) {
           out_labels[loc] = out_labels[loc + M];
-          if (x==sx && cur == in_labels[sx * (y + sy * z)]) {
+          if (x==sx-1 && cur == in_labels[sx * (y + sy * z)]) {
             equivalences.unify(out_labels[loc], out_labels[sx * (y + sy * z)]);
           }
           if (y > 0 && cur == in_labels[loc + K] && cur != in_labels[loc + J]) {
             equivalences.unify(out_labels[loc], out_labels[loc + K]); 
-            if (y==sy && cur == in_labels[x + sxy * z]) {
+            if (y==sy-1 && cur == in_labels[x + sxy * z]) {
               equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
             }
             if (z > 0 && cur == in_labels[loc + E]) {
               if (cur != in_labels[loc + D] && cur != in_labels[loc + B]) {
                 equivalences.unify(out_labels[loc], out_labels[loc + E]);
               }
-              if (z==sz && cur == in_labels[x + sx * y]) {
+              if (z==sz-1 && cur == in_labels[x + sx * y]) {
                 equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
               }
             }
           }
           else if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + D]) {
             equivalences.unify(out_labels[loc], out_labels[loc + E]); 
-            if (z==sz && cur == in_labels[x + sx * y]) {
+            if (z==sz-1 && cur == in_labels[x + sx * y]) {
               equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
             }
           }
         }
         else if (y > 0 && cur == in_labels[loc + K]) {
           out_labels[loc] = out_labels[loc + K];
-          if (y==sy && cur == in_labels[x + sxy * z]) {
+          if (y==sy-1 && cur == in_labels[x + sxy * z]) {
             equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
           }
           if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + B]) {
             equivalences.unify(out_labels[loc], out_labels[loc + E]); 
-            if (z==sz && cur == in_labels[x + sx * y]) {
+            if (z==sz-1 && cur == in_labels[x + sx * y]) {
               equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
             }
           }
         }
         else if (z > 0 && cur == in_labels[loc + E]) {
           out_labels[loc] = out_labels[loc + E];
-          if (z==sz && cur == in_labels[x + sx * y]) {
+          if (z==sz-1 && cur == in_labels[x + sx * y]) {
             equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
           }
         }
