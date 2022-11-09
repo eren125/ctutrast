@@ -862,6 +862,132 @@ OUT* connected_components3d_6(
   return out_labels;
 }
 
+template <typename T, typename OUT = uint32_t>
+OUT* connected_components3d_6_pbc(
+    T* in_labels, 
+    const int64_t sx, const int64_t sy, const int64_t sz,
+    size_t max_labels, 
+    OUT *out_labels = NULL, size_t &N = _dummy_N
+  ) {
+
+  const int64_t sxy = sx * sy;
+  const int64_t voxels = sxy * sz;
+
+  if (out_labels == NULL) {
+    out_labels = new OUT[voxels]();
+  }
+
+  if (max_labels == 0) {
+    return out_labels;
+  }
+
+  max_labels++; // corrects Cython estimation
+  max_labels = std::min(max_labels, static_cast<size_t>(voxels) + 1); // + 1L for an array with no zeros
+  max_labels = std::min(max_labels, static_cast<size_t>(std::numeric_limits<OUT>::max()));
+
+  DisjointSet<OUT> equivalences(max_labels);
+
+  const uint32_t *runs = compute_foreground_index(in_labels, sx, sy, sz);
+
+  /*
+    Layout of forward pass mask (which faces backwards). 
+    N is the current location.
+    z = -1     z = 0
+    A B C      J K L   y = -1 
+    D E F      M N     y =  0
+    G H I              y = +1
+   -1 0 +1    -1 0   <-- x axis
+  */
+
+  // Z - 1
+  const int64_t B = -sx - sxy;
+  const int64_t E = -sxy;
+  const int64_t D = -1 - sxy;
+
+  // Current Z
+  const int64_t K = -sx;
+  const int64_t M = -1;
+  const int64_t J = -1 - sx;
+  // N = 0;
+
+  int64_t loc = 0;
+  int64_t row = 0;
+  OUT next_label = 0;
+
+  // Raster Scan 1: Set temporary labels and 
+  // record equivalences in a disjoint set.
+
+  for (int64_t z = 0; z < sz; z++) {
+    for (int64_t y = 0; y < sy; y++, row++) {
+      const int64_t xstart = runs[row << 1];
+      const int64_t xend = runs[(row << 1) + 1];
+
+      for (int64_t x = xstart; x < xend; x++) {
+        loc = x + sx * (y + sy * z);
+
+        const T cur = in_labels[loc];
+
+        if (cur == 0) {
+          continue;
+        }
+
+        if (x > 0 && cur == in_labels[loc + M]) {
+          out_labels[loc] = out_labels[loc + M];
+          if (x==sx && cur == in_labels[sx * (y + sy * z)]) {
+            equivalences.unify(out_labels[loc], out_labels[sx * (y + sy * z)]);
+          }
+          if (y > 0 && cur == in_labels[loc + K] && cur != in_labels[loc + J]) {
+            equivalences.unify(out_labels[loc], out_labels[loc + K]); 
+            if (y==sy && cur == in_labels[x + sxy * z]) {
+              equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
+            }
+            if (z > 0 && cur == in_labels[loc + E]) {
+              if (cur != in_labels[loc + D] && cur != in_labels[loc + B]) {
+                equivalences.unify(out_labels[loc], out_labels[loc + E]);
+              }
+              if (z==sz && cur == in_labels[x + sx * y]) {
+                equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+              }
+            }
+          }
+          else if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + D]) {
+            equivalences.unify(out_labels[loc], out_labels[loc + E]); 
+            if (z==sz && cur == in_labels[x + sx * y]) {
+              equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+            }
+          }
+        }
+        else if (y > 0 && cur == in_labels[loc + K]) {
+          out_labels[loc] = out_labels[loc + K];
+          if (y==sy && cur == in_labels[x + sxy * z]) {
+            equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
+          }
+          if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + B]) {
+            equivalences.unify(out_labels[loc], out_labels[loc + E]); 
+            if (z==sz && cur == in_labels[x + sx * y]) {
+              equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+            }
+          }
+        }
+        else if (z > 0 && cur == in_labels[loc + E]) {
+          out_labels[loc] = out_labels[loc + E];
+          if (z==sz && cur == in_labels[x + sx * y]) {
+            equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+          }
+        }
+        else {
+          next_label++;
+          out_labels[loc] = next_label;
+          equivalences.add(out_labels[loc]);
+        }
+      }
+    }
+  }
+
+  out_labels = relabel<OUT>(out_labels, sx, sy, sz, next_label, equivalences, N, runs);
+  delete[] runs;
+  return out_labels;
+}
 
 // uses an approach inspired by 2x2 block based decision trees
 // by Grana et al that was intended for 8-connected. Here we 
@@ -1066,6 +1192,12 @@ OUT* connected_components3d(
   }
   else if (connectivity == 6) {
     return connected_components3d_6<T, OUT>(
+      in_labels, sx, sy, sz, 
+      max_labels, out_labels, N
+    );
+  }
+  else if (connectivity == 7) {
+    return connected_components3d_6_pbc<T, OUT>(
       in_labels, sx, sy, sz, 
       max_labels, out_labels, N
     );
