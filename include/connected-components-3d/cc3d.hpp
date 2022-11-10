@@ -911,20 +911,14 @@ OUT* connected_components3d_6_pbc(
   // N = 0;
 
   int64_t loc = 0;
-  int64_t row = 0;
   OUT next_label = 0;
 
   // Raster Scan 1: Set temporary labels and 
   // record equivalences in a disjoint set.
 
-  for (int64_t z = 0; z < sz; z++) {
-    for (int64_t y = 0; y < sy; y++, row++) {
-      const int64_t xstart = runs[row << 1];
-      const int64_t xend = runs[(row << 1) + 1];
-
-      for (int64_t x = xstart; x < xend; x++) {
-        loc = x + sx * (y + sy * z);
-
+  for (int64_t z = 0; z < sz; z++)
+    for (int64_t y = 0; y < sy; y++)
+      for (int64_t x = 0; x < sx; x++, ++loc) {
         const T cur = in_labels[loc];
 
         if (cur == 0) {
@@ -933,46 +927,67 @@ OUT* connected_components3d_6_pbc(
 
         if (x > 0 && cur == in_labels[loc + M]) {
           out_labels[loc] = out_labels[loc + M];
-          if (x==sx-1 && cur == in_labels[sx * (y + sy * z)]) {
-            equivalences.unify(out_labels[loc], out_labels[sx * (y + sy * z)]);
+          if (x==sx-1) {
+            int64_t loc_temp = sx * (y + sy * z);
+            if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+              equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+            }
           }
           if (y > 0 && cur == in_labels[loc + K] && cur != in_labels[loc + J]) {
             equivalences.unify(out_labels[loc], out_labels[loc + K]); 
-            if (y==sy-1 && cur == in_labels[x + sxy * z]) {
-              equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
+            if (y==sy-1) {
+              int64_t loc_temp = x + sxy * z;
+              if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+                equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+              }
             }
             if (z > 0 && cur == in_labels[loc + E]) {
               if (cur != in_labels[loc + D] && cur != in_labels[loc + B]) {
                 equivalences.unify(out_labels[loc], out_labels[loc + E]);
               }
-              if (z==sz-1 && cur == in_labels[x + sx * y]) {
-                equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+              if (z==sz-1) {
+                int64_t loc_temp = x + sx * y;
+                if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+                  equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+                }
               }
             }
           }
           else if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + D]) {
             equivalences.unify(out_labels[loc], out_labels[loc + E]); 
-            if (z==sz-1 && cur == in_labels[x + sx * y]) {
-              equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+            if (z==sz-1) {
+              int64_t loc_temp = x + sx * y;
+              if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+                equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+              }
             }
           }
         }
         else if (y > 0 && cur == in_labels[loc + K]) {
           out_labels[loc] = out_labels[loc + K];
-          if (y==sy-1 && cur == in_labels[x + sxy * z]) {
-            equivalences.unify(out_labels[loc], out_labels[x + sxy * z]);
+          if (y==sy-1) {
+            int64_t loc_temp = x + sxy * z;
+            if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+              equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+            }
           }
           if (z > 0 && cur == in_labels[loc + E] && cur != in_labels[loc + B]) {
             equivalences.unify(out_labels[loc], out_labels[loc + E]); 
-            if (z==sz-1 && cur == in_labels[x + sx * y]) {
-              equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+            if (z==sz-1) {
+              int64_t loc_temp = x + sx * y;
+              if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+                equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+              }
             }
           }
         }
         else if (z > 0 && cur == in_labels[loc + E]) {
           out_labels[loc] = out_labels[loc + E];
-          if (z==sz-1 && cur == in_labels[x + sx * y]) {
-            equivalences.unify(out_labels[loc], out_labels[x + sx * y]);
+          if (z==sz-1) {
+            int64_t loc_temp = x + sx * y;
+            if (cur == in_labels[loc_temp] && out_labels[loc] != out_labels[loc_temp]){
+              equivalences.unify(out_labels[loc], out_labels[loc_temp]);
+            }
           }
         }
         else {
@@ -981,8 +996,6 @@ OUT* connected_components3d_6_pbc(
           equivalences.add(out_labels[loc]);
         }
       }
-    }
-  }
 
   out_labels = relabel<OUT>(out_labels, sx, sy, sz, next_label, equivalences, N, runs);
   delete[] runs;
