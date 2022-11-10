@@ -30,18 +30,53 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-void printDistinct(uint16_t arr[], int n){
-    // Pick all elements one by one
-    for (size_t i=0; i<n; i++){
-        // Check if the picked element is already printed
-        size_t j;
-        for (j=0; j<i; j++)
-           if (arr[i] == arr[j])
-               break;
-        // If not printed earlier, then print it
-        if (i == j)
-          cout << arr[i] << " ";
+string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size_t nw) {
+  string channels;
+  bool present; // checks if a slice contains the label
+  // YZ slicing
+  for (size_t u = 0; u < nu; u++){
+    present = false;
+    while (present == false) {
+      for (size_t v = 0; v < nv; v++){
+        for (size_t w = 0; w < nw; w++){
+          size_t loc = size_t(w * nv + v) * nu + u;
+          if (cc_labels[loc]==label) {present = true;}
+        }
+      }
+      if (present == false) {break;}
     }
+    if (present == false) {break;}
+  }
+  if (present == true) {channels += 'X';}
+  for (size_t v = 0; v < nv; v++){
+    present = false;
+    while (present == false) {
+      for (size_t w = 0; w < nw; w++){
+        for (size_t u = 0; u < nu; u++){
+          size_t loc = size_t(w * nv + v) * nu + u;
+          if (cc_labels[loc]==label) {present = true;}
+        }
+      }
+      if (present == false) {break;}
+    }
+    if (present == false) {break;}
+  }
+  if (present == true) {channels += 'Y';}
+  for (size_t w = 0; w < nw; w++){
+    present = false; //if label is in slice
+    while (present == false) {
+      for (size_t v = 0; v < nv; v++){
+        for (size_t u = 0; u < nu; u++){
+          size_t loc = size_t(w * nv + v) * nu + u;
+          if (cc_labels[loc]==label) {present = true;}
+        }
+      }
+      if (present == false) {break;}
+    }
+    if (present == false) {break;}
+  }
+  if (present == true) {channels += 'Z';}
+  return channels;
 }
 
 using namespace std;
@@ -56,29 +91,34 @@ int main(int argc, char* argv[]) {
 
   // Set up a binary 3D array (is channel)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
-  int* labels = new int[array_size](); 
+  int* channel_labels = new int[array_size](); 
   size_t idx = 0;
   for (size_t i=0; i<array_size; i++){
     if (map.grid.data[i] < energy_threshold){
-      labels[i] = 1;
+      channel_labels[i] = 1;
       // map.grid.data[i]=-40;
     }
-  } 
-  size_t N = 0;
-  uint16_t* cc_labels = cc3d::connected_components3d<int, uint16_t>(
-  labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/7, /*N=*/N );
-  cout << N << endl;
-  // TODO loop over the unique labels and merge them according to pbc (in future change the code to include pbc)
-  // for (uint16_t label_1=1; label_1<N-1; label_1++){
-  //   for (uint16_t label_2=label_1+1; label_2<N; label_2++){
-  //     if ()
-  //   }
-  // }
-  for (size_t i=0; i<array_size; i++) {
-    if (cc_labels[i]==0){map.grid.data[i] = 1e3;}
-    else {map.grid.data[i] = cc_labels[i];}
   }
-  map.write_ccp4_map("grid/KAXQIL_clean_14_0.1_100_l.ccp4");
+  size_t N = 0;
+  uint16_t* channel_cc_labels = cc3d::connected_components3d<int, uint16_t>(
+  channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/7, /*N=*/N );
+  cout << N << endl;
+
+  
+  // Work with IFY
+  // For each label count charaterize the connection directions (a,b,c)
+  // OD channels can be removed => pockets
+  string channel_dimensions[N+1]; 
+  for (uint16_t label=1; label<=N; label++) {
+    channel_dimensions[label] += channel_dim(channel_cc_labels, label, map.grid.nu, map.grid.nv, map.grid.nw);
+    cout << channel_dimensions[label] << endl;
+  }
+
+  // remove symmetrical equivalent channels and count them (for the probability calculation)
+  // Work with PSI or KAXQIL
+
+  // TODO loop over the unique labels and merge them according to pbc (in future change the code to include pbc)
+
   // could be done in the code by applying pbc
   // Calculate diffusion coefficients
 
@@ -86,4 +126,10 @@ int main(int argc, char* argv[]) {
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
 //   cout << grid_file << "," << enthalpy_surface << "," << endl;
   cout << elapsed_time_ms*0.001 << endl;
+  // // Check the labels
+  // for (size_t i=0; i<array_size; i++) {
+  //   if (cc_labels[i]==0){map.grid.data[i] = 1e3;}
+  //   else {map.grid.data[i] = cc_labels[i];}
+  // }
+  // map.write_ccp4_map("grid/KAXQIL_clean_14_0.1_100_l.ccp4");
 }
