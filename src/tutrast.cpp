@@ -107,20 +107,18 @@ int main(int argc, char* argv[]) {
   map.read_ccp4_file(grid_file); 
   double grid_min = map.hstats.dmin;
 
-
   // Set up arrays of 0 (if framework) 1 (if void)
   // (AEI time = 11 ms)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
   int* channel_labels = new int[array_size](); 
   for (size_t i=0; i<array_size; i++){ 
-    if (map.grid.data[i] < energy_threshold){
-      channel_labels[i] = 1;
-    }
+    if (map.grid.data[i] < energy_threshold){channel_labels[i] = 1;}
   }
-  size_t N = 0;
+  
   // Channel labellisation using a 3D connected component algorithm modified to integrate PBC
   // (AEI time = 14ms)
-  uint16_t* channel_cc_labels = cc3d::connected_components3d<int, uint16_t, true>(
+  size_t N = 0;
+  uint16_t* channel_cc_labels = cc3d::connected_components3d<int,uint16_t,true>(
   channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
   cout << N << endl;
   delete [] channel_labels;
