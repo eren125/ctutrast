@@ -31,18 +31,9 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-bool all_true(bool* array, size_t size){
-  size_t i=0;
-  for (i=0; i!=size; i++){
-    if (!array[i])
-      break;
-  }
-  return (i==size);
-}
-
 string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size_t nw) {
   string channels;
-  bool present_X[nu]={0}; bool present_Y[nv]={0}; bool present_Z[nw]={0}; 
+  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
   for (size_t w = 0; w < nw; w++){
     for (size_t v = 0; v < nv; v++){
       for (size_t u = 0; u < nu; u++){
@@ -51,9 +42,9 @@ string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size
       }
     }
   }
-  if (all_true(present_X,nu)) {channels+='X';}
-  if (all_true(present_Y,nv)) {channels+='Y';}
-  if (all_true(present_Z,nw)) {channels+='Z';}
+  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
+  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
+  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
   return channels;
 }
 
@@ -88,7 +79,7 @@ bool all_true_2d(bool* array, size_t size_i, size_t size_j){
 
 string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
   string channels;
-  bool present_X[nu]={0}; bool present_Y[nv]={0}; bool present_Z[nw]={0}; 
+  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
   for (uint16_t loc:channel_idx_label){
     div_t div_temp = div(loc, nu);
     uint16_t u = div_temp.rem;
@@ -97,9 +88,9 @@ string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv,
     uint16_t w = div_temp_2.quot;
     present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
   }
-  if (all_true(present_X,nu)) {channels+='X';}
-  if (all_true(present_Y,nv)) {channels+='Y';}
-  if (all_true(present_Z,nw)) {channels+='Z';}
+  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
+  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
+  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
   return channels;
 }
 
@@ -135,7 +126,6 @@ int main(int argc, char* argv[]) {
 
   // if channel_dimensions is a null char, it is a pocket
   // (AEI time = 2.5ms)
-
   string channel_dimensions[N];
   for (uint16_t label=0; label!=N; label++) { 
     channel_dimensions[label] = channel_dim(channel_cc_labels, label+1, map.grid.nu, map.grid.nv, map.grid.nw);
@@ -143,7 +133,7 @@ int main(int argc, char* argv[]) {
   }
 
   // Check if sym image
-  vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
+  // vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
   // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
   /// These bassins are needed any way
 
