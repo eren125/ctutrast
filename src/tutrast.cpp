@@ -127,17 +127,12 @@ int main(int argc, char* argv[]) {
 
   // if channel_dimensions is a null char, it is a pocket
   // Array of the dimension for each channel and their direction (X,Y,Z)
-  // (AEI time = 2.5ms) TOCHANGE
-  chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
-  double time = chrono::duration<double, milli>(t_a-t_start).count();
-  cout << time << endl;
+  // (AEI time = 3.8ms) TOCHANGE
   vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
   for (uint16_t label=0; label!=N; label++) { 
     cout << channel_dimensions[label] << endl;
   }
-  t_a = chrono::high_resolution_clock::now();
-  time = chrono::duration<double, milli>(t_a-t_start).count();
-  cout << time << endl;
+
   // Check if sym image
   // vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
   // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
