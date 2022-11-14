@@ -57,25 +57,35 @@ bool all_true_2d(bool* array, size_t size_i, size_t size_j){
   return (i==size_i);
 }
 
-// string* channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu, size_t nv, size_t nw) {
-//   static string channel_dimensions[N_label];
-//   bool present_X[nu*N_label]={0}; bool present_Y[nv*N_label]={0}; bool present_Z[nw*N_label]={0}; 
-//   for (size_t w = 0; w < nw; w++){
-//     for (size_t v = 0; v < nv; v++){
-//       for (size_t u = 0; u < nu; u++){
-//         size_t loc = size_t(w * nv + v) * nu + u;
-//         size_t label = cc_labels[loc];
-//         present_X[u*label] = true;present_Y[v*label] = true;present_Z[w*label] = true;
-//       }
-//     }
-//   }
-//   for (size_t i=0; i!=N_label; i++){
-//     if (all_true_2d(present_X, nu, i)) {channel_dimensions[i]+='X';}
-//     if (all_true_2d(present_Y, nv, i)) {channel_dimensions[i]+='Y';}
-//     if (all_true_2d(present_Z, nw, i)) {channel_dimensions[i]+='Z';}
-//   }
-//   return channel_dimensions;
-// }
+vector<string> channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu, size_t nv, size_t nw) {
+  vector<string> channel_dimensions(N_label,"\0");
+  vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0)); 
+  vector< vector<bool> > present_Y_2d(N_label, vector<bool>(nv,0));
+  vector< vector<bool> > present_Z_2d(N_label, vector<bool>(nw,0));
+  for (size_t w = 0; w < nw; w++){
+    for (size_t v = 0; v < nv; v++){
+      for (size_t u = 0; u < nu; u++){
+        size_t loc = size_t(w * nv + v) * nu + u;
+        size_t label = cc_labels[loc];
+        if (label) {
+          label -=1;
+          present_X_2d[label][u] = true;
+          present_Y_2d[label][v] = true;
+          present_Z_2d[label][w] = true;
+        }
+      }
+    }
+  }
+  for (size_t label=0; label!=N_label; label++){
+    if (all_of(present_X_2d[label].begin(),present_X_2d[label].end(),[](bool v){return v;})) 
+      channel_dimensions[label]+='X';
+    if (all_of(present_Y_2d[label].begin(),present_Y_2d[label].end(),[](bool v){return v;})) 
+      channel_dimensions[label]+='Y';
+    if (all_of(present_Z_2d[label].begin(),present_Z_2d[label].end(),[](bool v){return v;})) 
+      channel_dimensions[label]+='Z';
+  }
+  return channel_dimensions;
+}
 
 string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
   string channels;
@@ -126,12 +136,15 @@ int main(int argc, char* argv[]) {
 
   // if channel_dimensions is a null char, it is a pocket
   // (AEI time = 2.5ms)
-  string channel_dimensions[N];
+  // vector<string> channel_dimensions(N,"\0");
+  // for (uint16_t label=0; label!=N; label++) { 
+  //   channel_dimensions[label] = channel_dim(channel_cc_labels, label+1, map.grid.nu, map.grid.nv, map.grid.nw);
+  //   cout << channel_dimensions[label] << endl;
+  // }
+  vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
   for (uint16_t label=0; label!=N; label++) { 
-    channel_dimensions[label] = channel_dim(channel_cc_labels, label+1, map.grid.nu, map.grid.nv, map.grid.nw);
     cout << channel_dimensions[label] << endl;
   }
-
   // Check if sym image
   // vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
   // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
