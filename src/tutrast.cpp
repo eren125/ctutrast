@@ -3,6 +3,7 @@
 #include <chrono>      // timer
 
 #include <algorithm>
+#include <vector>
 
 #include <gemmi/ccp4.hpp>
 #include <gemmi/asumask.hpp>
@@ -30,55 +31,75 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
+bool all_true(bool* array, size_t size){
+  size_t i=0;
+  for (i=0; i!=size; i++){
+    if (!array[i])
+      break;
+  }
+  return (i==size);
+}
+
 string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size_t nw) {
-  // TODO try and replace slice loop by random draws without replacement
   string channels;
-  bool present; // checks if a slice contains the label
-  // YZ slicing
-  for (size_t u = 0; u < nu; u++){
-    present = false;
-    while (present == false) {
-      for (size_t v = 0; v < nv; v++){
-        for (size_t w = 0; w < nw; w++){
-          size_t loc = size_t(w * nv + v) * nu + u;
-          if (cc_labels[loc]==label) {present = true;}
-        }
-      }
-      if (present == false) {break;}
-    }
-    if (present == false) {break;}
-  }
-  if (present == true) {channels += 'X';}
-  // XZ slicing
-  for (size_t v = 0; v < nv; v++){
-    present = false;
-    while (present == false) {
-      for (size_t w = 0; w < nw; w++){
-        for (size_t u = 0; u < nu; u++){
-          size_t loc = size_t(w * nv + v) * nu + u;
-          if (cc_labels[loc]==label) {present = true;}
-        }
-      }
-      if (present == false) {break;}
-    }
-    if (present == false) {break;}
-  }
-  if (present == true) {channels += 'Y';}
-  // XY slicing
+  bool present_X[nu]={0}; bool present_Y[nv]={0}; bool present_Z[nw]={0}; 
   for (size_t w = 0; w < nw; w++){
-    present = false; //if label is in slice
-    while (present == false) {
-      for (size_t v = 0; v < nv; v++){
-        for (size_t u = 0; u < nu; u++){
-          size_t loc = size_t(w * nv + v) * nu + u;
-          if (cc_labels[loc]==label) {present = true;}
-        }
+    for (size_t v = 0; v < nv; v++){
+      for (size_t u = 0; u < nu; u++){
+        size_t loc = size_t(w * nv + v) * nu + u;
+        if (cc_labels[loc]==label) {present_X[u] = true;present_Y[v] = true;present_Z[w] = true;}
       }
-      if (present == false) {break;}
     }
-    if (present == false) {break;}
   }
-  if (present == true) {channels += 'Z';}
+  if (all_true(present_X,nu)) {channels+='X';}
+  if (all_true(present_Y,nv)) {channels+='Y';}
+  if (all_true(present_Z,nw)) {channels+='Z';}
+  return channels;
+}
+
+bool all_true_2d(bool* array, size_t size_i, size_t size_j){
+  size_t i=0;
+  for (i=0; i!=size_i; i++){
+    if (!array[i*size_j])
+      break;
+  }
+  return (i==size_i);
+}
+
+// string* channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu, size_t nv, size_t nw) {
+//   static string channel_dimensions[N_label];
+//   bool present_X[nu*N_label]={0}; bool present_Y[nv*N_label]={0}; bool present_Z[nw*N_label]={0}; 
+//   for (size_t w = 0; w < nw; w++){
+//     for (size_t v = 0; v < nv; v++){
+//       for (size_t u = 0; u < nu; u++){
+//         size_t loc = size_t(w * nv + v) * nu + u;
+//         size_t label = cc_labels[loc];
+//         present_X[u*label] = true;present_Y[v*label] = true;present_Z[w*label] = true;
+//       }
+//     }
+//   }
+//   for (size_t i=0; i!=N_label; i++){
+//     if (all_true_2d(present_X, nu, i)) {channel_dimensions[i]+='X';}
+//     if (all_true_2d(present_Y, nv, i)) {channel_dimensions[i]+='Y';}
+//     if (all_true_2d(present_Z, nw, i)) {channel_dimensions[i]+='Z';}
+//   }
+//   return channel_dimensions;
+// }
+
+string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
+  string channels;
+  bool present_X[nu]={0}; bool present_Y[nv]={0}; bool present_Z[nw]={0}; 
+  for (uint16_t loc:channel_idx_label){
+    div_t div_temp = div(loc, nu);
+    uint16_t u = div_temp.rem;
+    div_t div_temp_2 = div(div_temp.quot, nv);
+    uint16_t v = div_temp_2.rem;
+    uint16_t w = div_temp_2.quot;
+    present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
+  }
+  if (all_true(present_X,nu)) {channels+='X';}
+  if (all_true(present_Y,nv)) {channels+='Y';}
+  if (all_true(present_Z,nw)) {channels+='Z';}
   return channels;
 }
 
@@ -93,11 +114,12 @@ int main(int argc, char* argv[]) {
   // (AEI time = 29 ms)
   map.read_ccp4_file(grid_file); 
   double grid_min = map.hstats.dmin;
+
+
   // Set up arrays of 0 (if framework) 1 (if void)
   // (AEI time = 11 ms)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
   int* channel_labels = new int[array_size](); 
-  size_t idx = 0;
   for (size_t i=0; i<array_size; i++){ 
     if (map.grid.data[i] < energy_threshold){
       channel_labels[i] = 1;
@@ -109,33 +131,58 @@ int main(int argc, char* argv[]) {
   uint16_t* channel_cc_labels = cc3d::connected_components3d<int, uint16_t, true>(
   channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
   cout << N << endl;
+  delete [] channel_labels;
 
-  // if channel_dimensions is a null char, it is a pocket  
-  // (AEI time = 16ms)
-  string channel_dimensions[N+1]; 
-  for (uint16_t label=1; label<=N; label++) { 
-    channel_dimensions[label] = channel_dim(channel_cc_labels, label, map.grid.nu, map.grid.nv, map.grid.nw);
+  // if channel_dimensions is a null char, it is a pocket
+  // (AEI time = 2.5ms)
+
+  string channel_dimensions[N];
+  for (uint16_t label=0; label!=N; label++) { 
+    channel_dimensions[label] = channel_dim(channel_cc_labels, label+1, map.grid.nu, map.grid.nv, map.grid.nw);
     cout << channel_dimensions[label] << endl;
   }
-  // TODO MAKE 2D array for label indexes to use instead of the grid of labels > then we can replace the previous approach by using the labels instead
-  for (size_t i=0; i<array_size; i++){ 
 
-  }
+  // Check if sym image
+  vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
+  // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
+  /// These bassins are needed any way
+
+
+  // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
+  // double time = chrono::duration<double, milli>(t_a-t_start).count();
+  // cout << time << endl;
+
+  // // Save label index (AEI time = 3.3 ms)
+  // vector<uint16_t> channel_idx[N]; // labels are reindexed from 0 to N-1 (instead of 1 to N)
+  // for (size_t idx=0; idx<array_size; idx++){
+  //   uint16_t label = channel_cc_labels[idx];
+  //   if (label!=0){channel_idx[label-1].push_back(idx);}
+  // }
+  // t_a = chrono::high_resolution_clock::now();
+  // time = chrono::duration<double, milli>(t_a-t_start).count();
+  // cout << time << endl;
+
+  // // Faster but bug
+  // string channel_dimensions[N];
+  // for (uint16_t label=0; label!=N; label++) { 
+  //   channel_dimensions[label] = channel_dim_idx(channel_idx[label], map.grid.nu, map.grid.nv, map.grid.nw);
+  //   cout << channel_dimensions[label] << endl;
+  // }
 
   // remove symmetrical equivalent channels and count them (for the probability calculation)
   // Work with PSI or KAXQIL
   // First approach
-  for (uint16_t label_1=1; label_1<N; label_1++) { 
-    if (channel_dimensions[label_1] != "") {
-      for (uint16_t label_2=label_1+1; label_2<=N; label_2++) {
-        if (channel_dimensions[label_2] != "" && 
-            channel_dimensions[label_2].length() == channel_dimensions[label_1].length()) {
-          // cout << label_1 << " could be equivalent to " << label_2 << endl;
-          // function to check if a N randomly selected points of label1 have images in label2
-        }
-      }
-    }
-  }
+  // for (uint16_t label_1=1; label_1<N; label_1++) { 
+  //   if (channel_dimensions[label_1] != "") {
+  //     for (uint16_t label_2=label_1+1; label_2<=N; label_2++) {
+  //       if (channel_dimensions[label_2] != "" && 
+  //           channel_dimensions[label_2].length() == channel_dimensions[label_1].length()) {
+  //         // cout << label_1 << " could be equivalent to " << label_2 << endl;
+  //         // function to check if a N randomly selected points of label1 have images in label2
+  //       }
+  //     }
+  //   }
+  // }
 
   // Other approach
   // Have an array of sorted index per label for non pocket
