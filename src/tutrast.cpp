@@ -48,15 +48,6 @@ string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size
   return channels;
 }
 
-bool all_true_2d(bool* array, size_t size_i, size_t size_j){
-  size_t i=0;
-  for (i=0; i!=size_i; i++){
-    if (!array[i*size_j])
-      break;
-  }
-  return (i==size_i);
-}
-
 vector<string> channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu, size_t nv, size_t nw) {
   vector<string> channel_dimensions(N_label,"\0");
   vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0)); 
