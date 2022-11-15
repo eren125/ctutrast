@@ -8,7 +8,7 @@ double modulo_1(double a) {
 }
 
 // Move the atom into the rectangular box using PBC
-void move_rect_box(gemmi::Fractional &Vsite, double a_x, double b_x, double c_x, double b_y, double c_y) {
+void move_rect_box(gemmi::Fractional &Vsite, double &a_x, double &b_x, double &c_x, double &b_y, double &c_y) {
   // double x = a_x*Vsite.x + b_x*Vsite.y + c_x*Vsite.z;
   // double y =               b_y*Vsite.y + c_y*Vsite.z;
   // double z =                             c_z*Vsite.z;
@@ -29,7 +29,7 @@ void move_rect_box(gemmi::Fractional &Vsite, double a_x, double b_x, double c_x,
   }
 }
 
-void move_rect_box_fast(gemmi::Fractional &Vsite, double a_x, double b_x, double c_x, double b_y, double c_y) {
+void move_rect_box_fast(gemmi::Fractional &Vsite, double &a_x, double &b_x, double &c_x, double &b_y, double &c_y) {
   // double x = a_x*Vsite.x + b_x*Vsite.y + c_x*Vsite.z;
   // double y =               b_y*Vsite.y + c_y*Vsite.z;
   // double z =                             c_z*Vsite.z;
