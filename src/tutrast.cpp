@@ -186,8 +186,7 @@ int main(int argc, char* argv[]) {
   }
   cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
-  // Map out unique channel label and their multiplicity (only relevant if there are more 
-  // than 2 types of channels)
+  // Map out unique types of channels and their representing labels (a few labels can constitute the same type of channel)
   vector < vector<uint16_t> > unique_labels = sym_unique_labels(map.grid, channel_cc_labels, channels);
   print_unique_labels(unique_labels);
   
