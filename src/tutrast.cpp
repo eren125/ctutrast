@@ -14,7 +14,7 @@
 
 using namespace std;
 
-double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, double temperature) {
+double grid_calc_enthalpy(gemmi::Grid<double> &grid, double &energy_threshold, double &temperature) {
   double boltzmann_energy_lj = 0;
   double sum_exp_energy = 0;
   size_t idx = 0;
@@ -31,32 +31,15 @@ double grid_calc_enthalpy(gemmi::Grid<double> grid, double energy_threshold, dou
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-string channel_dim(uint16_t* cc_labels, size_t label, size_t nu, size_t nv, size_t nw) {
-  string channels;
-  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
-  for (size_t w = 0; w < nw; w++){
-    for (size_t v = 0; v < nv; v++){
-      for (size_t u = 0; u < nu; u++){
-        size_t loc = size_t(w * nv + v) * nu + u;
-        if (cc_labels[loc]==label) {present_X[u] = true;present_Y[v] = true;present_Z[w] = true;}
-      }
-    }
-  }
-  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
-  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
-  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
-  return channels;
-}
-
-vector<string> channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu, size_t nv, size_t nw) {
+vector<string> channel_dim_array(uint16_t* cc_labels, size_t &N_label, int &nu, int &nv, int &nw) {
   vector<string> channel_dimensions(N_label,"\0");
   vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0)); 
   vector< vector<bool> > present_Y_2d(N_label, vector<bool>(nv,0));
   vector< vector<bool> > present_Z_2d(N_label, vector<bool>(nw,0));
+  size_t loc = 0;
   for (size_t w = 0; w < nw; w++){
     for (size_t v = 0; v < nv; v++){
-      for (size_t u = 0; u < nu; u++){
-        size_t loc = size_t(w * nv + v) * nu + u;
+      for (size_t u = 0; u < nu; u++, ++loc){
         size_t label = cc_labels[loc];
         if (label) {
           label -=1;
@@ -78,24 +61,24 @@ vector<string> channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu,
   return channel_dimensions;
 }
 
-// string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
-//   string channels;
-//   vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
-//   for (uint16_t loc:channel_idx_label){
-//     div_t div_temp = div(loc, nu);
-//     uint16_t u = div_temp.rem;
-//     div_t div_temp_2 = div(div_temp.quot, nv);
-//     uint16_t v = div_temp_2.rem;
-//     uint16_t w = div_temp_2.quot;
-//     present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
-//   }
-//   if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
-//   if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
-//   if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
-//   return channels;
-// }
+string channel_dim_idx(vector<uint16_t> &channel_idx_label, int &nu, int &nv, int &nw) {
+  string channels;
+  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
+  for (uint16_t loc:channel_idx_label){
+    div_t div_temp = div(loc, nu);
+    uint16_t u = div_temp.rem;
+    div_t div_temp_2 = div(div_temp.quot, nv);
+    uint16_t v = div_temp_2.rem;
+    uint16_t w = div_temp_2.quot;
+    present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
+  }
+  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
+  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
+  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
+  return channels;
+}
 
-vector < vector<uint16_t> > sym_unique_labels(gemmi::Grid<double> grid, uint16_t* cc_labels, vector<uint16_t> channels) {
+vector < vector<uint16_t> > sym_unique_labels(gemmi::Grid<double> &grid, uint16_t* cc_labels, vector<uint16_t> channels) {
   vector < vector<uint16_t> > unique_labels;
 
   vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
@@ -134,7 +117,7 @@ vector < vector<uint16_t> > sym_unique_labels(gemmi::Grid<double> grid, uint16_t
   return unique_labels;
 }
 
-void print_unique_labels(vector < vector<uint16_t> > unique_labels){
+void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
   cout << "Unique channels" << endl;
   int count = 0;
   for (vector<uint16_t> equiv_labels: unique_labels){
@@ -154,7 +137,7 @@ int main(int argc, char* argv[]) {
   double energy_threshold = stod(argv[3]); //kJ/mol
   gemmi::Ccp4<double> map;
   // READ MAP that took about 870 ms to make for AEI
-  // (AEI time = 29 ms)
+  // (AEI time = 28 ms)
   map.read_ccp4_file(grid_file); 
   double grid_min = map.hstats.dmin;
 
@@ -165,9 +148,9 @@ int main(int argc, char* argv[]) {
   for (size_t i=0; i<array_size; i++){ 
     if (map.grid.data[i] < energy_threshold){channel_labels[i] = 1;}
   }
-  
+
   // Channel labellisation using a 3D connected component algorithm modified to integrate PBC
-  // (AEI time = 14ms)
+  // (AEI time = 13 ms)
   size_t N = 0;
   uint16_t* channel_cc_labels = cc3d::connected_components3d<int,uint16_t,true>(
   channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
@@ -175,7 +158,7 @@ int main(int argc, char* argv[]) {
 
   // if channel_dimensions is a null char, it is a pocket
   // Array of the dimension for each channel and their direction (X,Y,Z)
-  // (AEI time = 3.8ms) TOCHANGE
+  // (AEI time = 3.6ms) 
   vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
   vector<uint16_t> channels;
   for (uint16_t label=0; label!=N; label++) { 
@@ -187,64 +170,43 @@ int main(int argc, char* argv[]) {
   cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
   // Map out unique types of channels and their representing labels (a few labels can constitute the same type of channel)
+  // (AEI time = 0.5 ms) 
   vector < vector<uint16_t> > unique_labels = sym_unique_labels(map.grid, channel_cc_labels, channels);
-  print_unique_labels(unique_labels);
-  
-  // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
+  // print_unique_labels(unique_labels);
+
+  // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
+  // double time = chrono::duration<double, milli>(t_a-t_start).count();
+  // cout << time << endl;
+  // t_a = chrono::high_resolution_clock::now();
+  // time = chrono::duration<double, milli>(t_a-t_start).count();
+  // cout << time << endl;
+
+  // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of 
+  // another channels
   // These bassins are needed anyway
   // Loop over RT (if number of clusters increase then study in detail to detect TS)
   // We can do a dichotomy algorithm until a given precision on energy is reached (10-1 kJ/mol)
   // Definition TS = least energy point that connects two previous clusters
 
 
-  // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
-  // double time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
-  // // Save label index (AEI time = 3.3 ms)
-  // vector<uint16_t> channel_idx[N]; // labels are reindexed from 0 to N-1 (instead of 1 to N)
-  // for (size_t idx=0; idx<array_size; idx++){
-  //   uint16_t label = channel_cc_labels[idx];
-  //   if (label!=0){channel_idx[label-1].push_back(idx);}
-  // }
-  // t_a = chrono::high_resolution_clock::now();
-  // time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
-
   // // Faster but bug
-  // string channel_dimensions[N];
+  // vector< vector<uint16_t>> channel_idx(N,{});
+  // for (uint16_t i=0; i<array_size; i++){ 
+  //   channel_idx[channel_cc_labels[i]-1].push_back(i);
+  // }
+  // vector<string> channel_dimensions(N, "\0");
   // for (uint16_t label=0; label!=N; label++) { 
-  //   channel_dimensions[label] = channel_dim_idx(channel_idx[label], map.grid.nu, map.grid.nv, map.grid.nw);
+  //   channel_dimensions[label] = channel_dim_idx(channel_idx[label-1], map.grid.nu, map.grid.nv, map.grid.nw);
   //   cout << channel_dimensions[label] << endl;
   // }
 
-  // remove symmetrical equivalent channels and count them (for the probability calculation)
-  // Work with PSI or KAXQIL
-  // First approach
-  // for (uint16_t label_1=1; label_1<N; label_1++) { 
-  //   if (channel_dimensions[label_1] != "") {
-  //     for (uint16_t label_2=label_1+1; label_2<=N; label_2++) {
-  //       if (channel_dimensions[label_2] != "" && 
-  //           channel_dimensions[label_2].length() == channel_dimensions[label_1].length()) {
-  //         // cout << label_1 << " could be equivalent to " << label_2 << endl;
-  //         // function to check if a N randomly selected points of label1 have images in label2
-  //       }
-  //     }
-  //   }
-  // }
-
-  // Other approach
-  // Have an array of sorted index per label for non pocket
-  // Make symmetry easily using the grid ops and check if in other label
-
-
-
-  // could be done in the code by applying pbc
   // Calculate diffusion coefficients
-
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-//   cout << grid_file << "," << enthalpy_surface << "," << endl;
+  // double enthalpy_surface=grid_calc_enthalpy(map.grid, energy_threshold, temperature);
+  // cout << grid_file << "," << enthalpy_surface << "," << endl;
   cout << elapsed_time_ms*0.001 << endl;
+
   // // Check the labels
   // for (size_t i=0; i<array_size; i++) {
   //   if (cc_labels[i]==0){map.grid.data[i] = 1e3;}
