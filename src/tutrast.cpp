@@ -78,21 +78,72 @@ vector<string> channel_dim_array(uint16_t* cc_labels, size_t N_label, size_t nu,
   return channel_dimensions;
 }
 
-string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
-  string channels;
-  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
-  for (uint16_t loc:channel_idx_label){
-    div_t div_temp = div(loc, nu);
-    uint16_t u = div_temp.rem;
-    div_t div_temp_2 = div(div_temp.quot, nv);
-    uint16_t v = div_temp_2.rem;
-    uint16_t w = div_temp_2.quot;
-    present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
+// string channel_dim_idx(vector<uint16_t> channel_idx_label, size_t nu, size_t nv, size_t nw) {
+//   string channels;
+//   vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
+//   for (uint16_t loc:channel_idx_label){
+//     div_t div_temp = div(loc, nu);
+//     uint16_t u = div_temp.rem;
+//     div_t div_temp_2 = div(div_temp.quot, nv);
+//     uint16_t v = div_temp_2.rem;
+//     uint16_t w = div_temp_2.quot;
+//     present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
+//   }
+//   if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
+//   if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
+//   if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
+//   return channels;
+// }
+
+vector < vector<uint16_t> > sym_unique_labels(gemmi::Grid<double> grid, uint16_t* cc_labels, vector<uint16_t> channels) {
+  vector < vector<uint16_t> > unique_labels;
+
+  vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
+  vector<uint16_t>::iterator it;
+  vector<uint16_t> labels;
+  size_t count = 0;
+  size_t idx =0;
+  for (int w = 0; w != grid.nw; ++w)
+    for (int v = 0; v != grid.nv; ++v)
+      for (int u = 0; u != grid.nu; ++u, ++idx) {
+        uint16_t label = cc_labels[idx];
+        double energy = grid.data[idx];
+        it = find (channels.begin(), channels.end(), label);
+        if (it != channels.end() && energy<0){ // hard coded change the threshold to a meaningful value
+          it = find (labels.begin(), labels.end(), label);
+          if (it == labels.end()) {
+            vector<uint16_t> equiv_label;
+            equiv_label.push_back(label);
+            labels.push_back(label);count++;
+            for (size_t k = 0; k < grid_ops.size(); ++k) {
+              array<int,3> t = grid_ops[k].apply(u, v, w);
+              size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
+              uint16_t mate_label = cc_labels[mate_idx];
+              it = find (equiv_label.begin(), equiv_label.end(), mate_label);
+              if (it == equiv_label.end()){
+                equiv_label.push_back(mate_label);
+                labels.push_back(label);count++;
+              }
+            }
+            unique_labels.push_back(equiv_label);
+          }
+        }
+        if (count == channels.size()) {break;}
+        else if (count > channels.size()) {cout << "ERROR in unique channel determination" << endl;}
   }
-  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
-  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
-  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
-  return channels;
+  return unique_labels;
+}
+
+void print_unique_labels(vector < vector<uint16_t> > unique_labels){
+  cout << "Unique channels" << endl;
+  int count = 0;
+  for (vector<uint16_t> equiv_labels: unique_labels){
+    for (uint16_t label: equiv_labels){
+      cout << label << " ";
+    }
+    count++;
+    cout << endl;
+  }
 }
 
 using namespace std;
@@ -120,27 +171,36 @@ int main(int argc, char* argv[]) {
   size_t N = 0;
   uint16_t* channel_cc_labels = cc3d::connected_components3d<int,uint16_t,true>(
   channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
-  cout << N << endl;
   delete [] channel_labels;
 
   // if channel_dimensions is a null char, it is a pocket
   // Array of the dimension for each channel and their direction (X,Y,Z)
   // (AEI time = 3.8ms) TOCHANGE
   vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
+  vector<uint16_t> channels;
   for (uint16_t label=0; label!=N; label++) { 
-    cout << channel_dimensions[label] << endl;
+    if (channel_dimensions[label]!="\0") {
+      cout << label + 1 << " " << channel_dimensions[label] << endl;
+      channels.push_back(label+1);
+    }
   }
+  cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
-  // Check if sym image
-  // vector<gemmi::GridOp> grid_ops = map.grid.get_scaled_ops_except_id();
+  // Map out unique channel label and their multiplicity (only relevant if there are more 
+  // than 2 types of channels)
+  vector < vector<uint16_t> > unique_labels = sym_unique_labels(map.grid, channel_cc_labels, channels);
+  print_unique_labels(unique_labels);
+  
   // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of another channels
-  /// These bassins are needed any way
+  // These bassins are needed anyway
+  // Loop over RT (if number of clusters increase then study in detail to detect TS)
+  // We can do a dichotomy algorithm until a given precision on energy is reached (10-1 kJ/mol)
+  // Definition TS = least energy point that connects two previous clusters
 
 
   // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
   // double time = chrono::duration<double, milli>(t_a-t_start).count();
   // cout << time << endl;
-
   // // Save label index (AEI time = 3.3 ms)
   // vector<uint16_t> channel_idx[N]; // labels are reindexed from 0 to N-1 (instead of 1 to N)
   // for (size_t idx=0; idx<array_size; idx++){
