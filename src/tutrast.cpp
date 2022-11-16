@@ -9,7 +9,7 @@
 #include <gemmi/asumask.hpp>
 
 #include <connected-components-3d/cc3d.hpp>
-
+#include<bits/stdc++.h>
 #define R 8.31446261815324e-3 // kJ/mol/K
 
 using namespace std;
@@ -129,6 +129,34 @@ void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
   }
 }
 
+vector<int> bfsOfGraph(int V, vector<int> adj[])
+{
+    vector<int> bfs_traversal;
+    vector<bool> vis(V, false);
+    for (int i = 0; i < V; ++i) {
+         
+        // To check if already visited
+        if (!vis[i]) {
+            queue<int> q;
+            vis[i] = true;
+            q.push(i);
+            // BFS starting from ith node
+            while (!q.empty()) {
+                int g_node = q.front();
+                q.pop();
+                bfs_traversal.push_back(g_node);
+                for (auto it : adj[g_node]) {
+                    if (!vis[it]) {
+                        vis[it] = true;
+                        q.push(it);
+                    }
+                }
+            }
+        }
+    }
+    return bfs_traversal;
+}
+
 using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
@@ -139,22 +167,37 @@ int main(int argc, char* argv[]) {
   // READ MAP that took about 870 ms to make for AEI
   // (AEI time = 28 ms)
   map.read_ccp4_file(grid_file); 
-  double grid_min = map.hstats.dmin;
 
   // Set up arrays of 0 (if framework) 1 (if void)
   // (AEI time = 11 ms)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
-  int* channel_labels = new int[array_size](); 
+  uint16_t* channel_labels = new uint16_t[array_size](); 
+  double energy_step = R*temperature; // Can be changed
+  uint16_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
   for (size_t i=0; i<array_size; i++){ 
-    if (map.grid.data[i] < energy_threshold){channel_labels[i] = 1;}
+    double energy = map.grid.data[i];
+    if (energy<energy_threshold) {
+      channel_labels[i] = 1;
+    } 
   }
-
+  // size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
+  // uint16_t* channel_labels = new uint16_t[array_size](); 
+  // double energy_step = R*temperature; // Can be changed
+  // uint16_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
+  // for (size_t i=0; i<array_size; i++){ 
+  //   double energy = map.grid.data[i];
+  //   if (energy<energy_threshold) {
+  //     channel_labels[i] = max_steps - floor((energy - map.hstats.dmin)/energy_step) + 1;
+  //     if (energy>map.hstats.dmin+max_steps*energy_step){cout << channel_labels[i]<< " ";}
+  //   } // initial labels go from 1 to max_steps+1 according to their closeness to  
+  // }
   // Channel labellisation using a 3D connected component algorithm modified to integrate PBC
   // (AEI time = 13 ms)
   size_t N = 0;
-  uint16_t* channel_cc_labels = cc3d::connected_components3d<int,uint16_t,true>(
+  uint16_t* channel_cc_labels = cc3d::connected_components3d<uint16_t,uint16_t,true>(
   channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
   delete [] channel_labels;
+  // Breadth first search to get the connected components to replace !
 
   // if channel_dimensions is a null char, it is a pocket
   // Array of the dimension for each channel and their direction (X,Y,Z)
@@ -168,6 +211,10 @@ int main(int argc, char* argv[]) {
     }
   }
   cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+
+  //channel dimension > go from one starting point of a channel apply BFS, and if come back to the starting point 
+  // (and traversed a PBC save the direction in which it did)
+  // Calc the determinent of this matrix to get dimensionality of the channel
 
   // Map out unique types of channels and their representing labels (a few labels can constitute the same type of channel)
   // (AEI time = 0.5 ms) 
@@ -189,6 +236,16 @@ int main(int argc, char* argv[]) {
   // Definition TS = least energy point that connects two previous clusters
 
 
+  // double threshold_temp = map.hstats.dmin + R*temperature;
+  // int* channel_labels_temp = new int[array_size](); 
+  // for (size_t i=0; i<array_size; i++){ 
+  //   double energy = map.grid.data[i];
+  //   if (energy < threshold_temp){channel_labels[i] = 1;}
+  // }
+  // size_t N = 0;
+  // uint16_t* channel_cc_labels = cc3d::connected_components3d<int,uint16_t,true>(
+  // channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
+  // delete [] channel_labels_temp;
   // // Faster but bug
   // vector< vector<uint16_t>> channel_idx(N,{});
   // for (uint16_t i=0; i<array_size; i++){ 
