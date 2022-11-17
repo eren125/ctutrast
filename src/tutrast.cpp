@@ -3,13 +3,15 @@
 #include <chrono>      // timer
 
 #include <algorithm>
+#include<bits/stdc++.h>
 #include <vector>
+#include <queue>
 
 #include <gemmi/ccp4.hpp>
 #include <gemmi/asumask.hpp>
 
 #include <connected-components-3d/cc3d.hpp>
-#include<bits/stdc++.h>
+
 #define R 8.31446261815324e-3 // kJ/mol/K
 
 using namespace std;
@@ -122,39 +124,58 @@ void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
   int count = 0;
   for (vector<uint16_t> equiv_labels: unique_labels){
     for (uint16_t label: equiv_labels){
-      cout << label << " ";
+      std::cout << label << " ";
     }
     count++;
-    cout << endl;
+    std::cout << endl;
   }
 }
 
-vector<int> bfsOfGraph(int V, vector<int> adj[])
-{
-    vector<int> bfs_traversal;
-    vector<bool> vis(V, false);
-    for (int i = 0; i < V; ++i) {
-         
-        // To check if already visited
-        if (!vis[i]) {
-            queue<int> q;
-            vis[i] = true;
-            q.push(i);
-            // BFS starting from ith node
-            while (!q.empty()) {
-                int g_node = q.front();
-                q.pop();
-                bfs_traversal.push_back(g_node);
-                for (auto it : adj[g_node]) {
-                    if (!vis[it]) {
-                        vis[it] = true;
-                        q.push(it);
-                    }
-                }
+tuple<int,int,int> index_to_point(int &idx, int &nu, int &nv, int &nw){
+    auto d1 = std::div((ptrdiff_t)idx, (ptrdiff_t)nu);
+    auto d2 = std::div(d1.quot, (ptrdiff_t)nv);
+    int u = (int) d1.rem;
+    int v = (int) d2.rem;
+    int w = (int) d2.quot;
+  return {u, v, w};
+}
+
+vector< vector<int> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold) {
+  vector< vector<int> > bfs_traversal_clusters;
+  int idx = 0;
+  for (int w = 0; w != grid.nw; ++w)
+  for (int v = 0; v != grid.nv; ++v)
+  for (int u = 0; u != grid.nu; ++u, ++idx) {
+    if (!vis[idx]) {
+      vis[idx] = true;
+      if (grid.data[idx]<energy_threshold) {
+        queue<int> q;
+        q.push(idx);
+        vector<int> bfs_traversal;
+        while (!q.empty()) {
+          int g_node = q.front();
+          q.pop();
+          bfs_traversal.push_back(g_node);
+          int u_node, v_node, w_node;
+          tie(u_node, v_node, w_node) = index_to_point(g_node,grid.nu,grid.nv,grid.nw);
+          for(int a=-1; a!=2;a++)
+          for(int b=-1; b!=2;b++)
+          for(int c=-1; c!=2;c++){
+            if (a==0 && b==0 && c==0){continue;}
+            int it = grid.index_n(u_node+a,v_node+b,w_node+c);
+            if (!vis[it]) {
+              vis[it] = true;
+              if (grid.data[it]<energy_threshold) {
+                q.push(it);
+              }
             }
+          }
         }
+        bfs_traversal_clusters.push_back(bfs_traversal);
+      }
     }
-    return bfs_traversal;
+  }
+  return bfs_traversal_clusters;
 }
 
 using namespace std;
@@ -167,19 +188,33 @@ int main(int argc, char* argv[]) {
   // READ MAP that took about 870 ms to make for AEI
   // (AEI time = 28 ms)
   map.read_ccp4_file(grid_file); 
-
+  const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
   // Set up arrays of 0 (if framework) 1 (if void)
   // (AEI time = 11 ms)
   size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
   uint16_t* channel_labels = new uint16_t[array_size](); 
   double energy_step = R*temperature; // Can be changed
-  uint16_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
   for (size_t i=0; i<array_size; i++){ 
     double energy = map.grid.data[i];
     if (energy<energy_threshold) {
       channel_labels[i] = 1;
     } 
   }
+  
+  // Channel labelisation using a 3D connected component algorithm modified to integrate PBC
+  // (AEI time = 13 ms)
+  // size_t N = 0;
+  // uint16_t* channel_cc_labels = cc3d::connected_components3d<uint16_t,uint16_t,true>(
+  // channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
+  // delete [] channel_labels;
+  // cout << N << endl;
+
+  // //Breadth first search to get the connected components
+  vector<bool> vis(V, false);
+  vector< vector<int> > channels_idx = bfsOfGraph(vis, map.grid, energy_threshold);
+  cout << channels_idx.size() << endl;
+
+  // Loop over the different energy levels
   // size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
   // uint16_t* channel_labels = new uint16_t[array_size](); 
   // double energy_step = R*temperature; // Can be changed
@@ -191,26 +226,20 @@ int main(int argc, char* argv[]) {
   //     if (energy>map.hstats.dmin+max_steps*energy_step){cout << channel_labels[i]<< " ";}
   //   } // initial labels go from 1 to max_steps+1 according to their closeness to  
   // }
-  // Channel labellisation using a 3D connected component algorithm modified to integrate PBC
-  // (AEI time = 13 ms)
-  size_t N = 0;
-  uint16_t* channel_cc_labels = cc3d::connected_components3d<uint16_t,uint16_t,true>(
-  channel_labels, /*sx=*/map.grid.nu, /*sy=*/map.grid.nv, /*sz=*/map.grid.nw, /*connectivity=*/26, /*N=*/N );
-  delete [] channel_labels;
-  // Breadth first search to get the connected components to replace !
+
 
   // if channel_dimensions is a null char, it is a pocket
   // Array of the dimension for each channel and their direction (X,Y,Z)
   // (AEI time = 3.6ms) 
-  vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
-  vector<uint16_t> channels;
-  for (uint16_t label=0; label!=N; label++) { 
-    if (channel_dimensions[label]!="\0") {
-      cout << label + 1 << " " << channel_dimensions[label] << endl;
-      channels.push_back(label+1);
-    }
-  }
-  cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+  // vector<string> channel_dimensions=channel_dim_array(channel_cc_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
+  // vector<uint16_t> channels;
+  // for (uint16_t label=0; label!=N; label++) { 
+  //   if (channel_dimensions[label]!="\0") {
+  //     cout << label + 1 << " " << channel_dimensions[label] << endl;
+  //     channels.push_back(label+1);
+  //   }
+  // }
+  // cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
   //channel dimension > go from one starting point of a channel apply BFS, and if come back to the starting point 
   // (and traversed a PBC save the direction in which it did)
@@ -218,7 +247,7 @@ int main(int argc, char* argv[]) {
 
   // Map out unique types of channels and their representing labels (a few labels can constitute the same type of channel)
   // (AEI time = 0.5 ms) 
-  vector < vector<uint16_t> > unique_labels = sym_unique_labels(map.grid, channel_cc_labels, channels);
+  // vector < vector<uint16_t> > unique_labels = sym_unique_labels(map.grid, channel_cc_labels, channels);
   // print_unique_labels(unique_labels);
 
   // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
