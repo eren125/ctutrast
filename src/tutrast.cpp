@@ -132,7 +132,7 @@ void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
 }
 
 template <typename T = uint16_t >
-tuple<T,T,T> index_to_point(T &idx, int &nu, int &nv, int &nw){
+tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
     auto d1 = std::div((ptrdiff_t)idx, (ptrdiff_t)nu);
     auto d2 = std::div(d1.quot, (ptrdiff_t)nv);
     T u = (T) d1.rem;
@@ -142,7 +142,7 @@ tuple<T,T,T> index_to_point(T &idx, int &nu, int &nv, int &nw){
 }
 
 template <typename T = uint16_t >
-vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold, size_t &V) {
+vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold, size_t V) {
   vector< vector<T> > bfs_traversal_clusters;
   T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
   for (int idx = 0; idx != V; ++idx) {
@@ -157,7 +157,7 @@ vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, dou
           q.pop();
           bfs_traversal.push_back(g_node);
           T u_node, v_node, w_node;
-          tie(u_node, v_node, w_node) = index_to_point(g_node,grid.nu,grid.nv,grid.nw);
+          tie(u_node, v_node, w_node) = index_to_point(g_node,nu,nv,nw);
           for(int8_t a=-1; a!=2;a++)
           for(int8_t b=-1; b!=2;b++)
           for(int8_t c=-1; c!=2;c++){
@@ -201,15 +201,15 @@ int main(int argc, char* argv[]) {
   const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
   // Set up arrays of 0 (if framework) 1 (if void)
   // (AEI time = 11 ms)
-  size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
-  uint16_t* channel_labels = new uint16_t[array_size](); 
-  double energy_step = R*temperature; // Can be changed
-  for (size_t i=0; i<array_size; i++){ 
-    double energy = map.grid.data[i];
-    if (energy<energy_threshold) {
-      channel_labels[i] = 1;
-    } 
-  }
+  //size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
+  //uint16_t* channel_labels = new uint16_t[array_size](); 
+  //double energy_step = R*temperature; // Can be changed
+  //for (size_t i=0; i<array_size; i++){ 
+  //  double energy = map.grid.data[i];
+  //  if (energy<energy_threshold) {
+  //    channel_labels[i] = 1;
+  //  } 
+  //}
   
   // Channel labelisation using a 3D connected component algorithm modified to integrate PBC
   // (AEI time = 13 ms)
@@ -221,7 +221,7 @@ int main(int argc, char* argv[]) {
 
   // //Breadth first search to get the connected components
   vector<bool> vis(V, false);
-  vector< vector<int> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold, V);
+  vector< vector<uint32_t> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold, V);
   cout << channels_idx.size() << endl;
 
   // Loop over the different energy levels
