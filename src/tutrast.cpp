@@ -63,23 +63,6 @@ vector<string> channel_dim_array(uint16_t* cc_labels, size_t &N_label, int &nu, 
   return channel_dimensions;
 }
 
-string channel_dim_idx(vector<uint16_t> &channel_idx_label, int &nu, int &nv, int &nw) {
-  string channels;
-  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
-  for (uint16_t loc:channel_idx_label){
-    div_t div_temp = div(loc, nu);
-    uint16_t u = div_temp.rem;
-    div_t div_temp_2 = div(div_temp.quot, nv);
-    uint16_t v = div_temp_2.rem;
-    uint16_t w = div_temp_2.quot;
-    present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
-  }
-  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
-  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
-  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
-  return channels;
-}
-
 vector < vector<uint16_t> > sym_unique_labels(gemmi::Grid<double> &grid, uint16_t* cc_labels, vector<uint16_t> channels) {
   vector < vector<uint16_t> > unique_labels;
 
@@ -131,7 +114,7 @@ void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
   }
 }
 
-template <typename T = uint16_t >
+template <typename T = uint32_t >
 tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
     auto d1 = std::div((ptrdiff_t)idx, (ptrdiff_t)nu);
     auto d2 = std::div(d1.quot, (ptrdiff_t)nv);
@@ -141,7 +124,7 @@ tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
   return {u, v, w};
 }
 
-template <typename T = uint16_t >
+template <typename T = uint32_t >
 vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold, size_t V) {
   vector< vector<T> > bfs_traversal_clusters;
   T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
@@ -157,7 +140,7 @@ vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, dou
           q.pop();
           bfs_traversal.push_back(g_node);
           T u_node, v_node, w_node;
-          tie(u_node, v_node, w_node) = index_to_point(g_node,nu,nv,nw);
+          tie(u_node, v_node, w_node) = index_to_point<T>(g_node,nu,nv,nw);
           for(int8_t a=-1; a!=2;a++)
           for(int8_t b=-1; b!=2;b++)
           for(int8_t c=-1; c!=2;c++){
@@ -186,6 +169,21 @@ vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, dou
     }
   }
   return bfs_traversal_clusters;
+}
+
+template <typename T = uint32_t >
+string channel_dim_idx(vector<T> &channel_idx_label, T &nu, T &nv, T &nw) {
+  string channels;
+  vector<bool> present_X(nu, 0); vector<bool> present_Y(nv, 0); vector<bool> present_Z(nw, 0);
+  for (T loc:channel_idx_label){
+    T u, v, w;
+    tie(u, v, w) = index_to_point<T>(loc,nu,nv,nw);
+    present_X[u] = true;present_Y[v] = true;present_Z[w] = true;
+  }
+  if (all_of(present_X.begin(),present_X.end(),[](bool v){return v;})) {channels+='X';}
+  if (all_of(present_Y.begin(),present_Y.end(),[](bool v){return v;})) {channels+='Y';}
+  if (all_of(present_Z.begin(),present_Z.end(),[](bool v){return v;})) {channels+='Z';}
+  return channels;
 }
 
 using namespace std;
@@ -221,8 +219,14 @@ int main(int argc, char* argv[]) {
 
   // //Breadth first search to get the connected components
   vector<bool> vis(V, false);
-  vector< vector<uint32_t> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold, V);
+  vector< vector<uint32_t> > channels_idx = bfsOfGraph(vis, map.grid, energy_threshold, V);
   cout << channels_idx.size() << endl;
+  size_t N=channels_idx.size();
+  vector<string> channel_dimensions(N, "\0");
+  for (uint32_t label=0; label!=N; label++) { 
+    channel_dimensions[label] = channel_dim_idx(channel_idx[label-1], (uint32_t)map.grid.nu, (uint32_t)map.grid.nv, (uint32_t) map.grid.nw);
+    cout << channel_dimensions[label] << endl;
+  }
 
   // Loop over the different energy levels
   // size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
@@ -290,11 +294,7 @@ int main(int argc, char* argv[]) {
   // for (uint16_t i=0; i<array_size; i++){ 
   //   channel_idx[channel_cc_labels[i]-1].push_back(i);
   // }
-  // vector<string> channel_dimensions(N, "\0");
-  // for (uint16_t label=0; label!=N; label++) { 
-  //   channel_dimensions[label] = channel_dim_idx(channel_idx[label-1], map.grid.nu, map.grid.nv, map.grid.nw);
-  //   cout << channel_dimensions[label] << endl;
-  // }
+
 
   // Calculate diffusion coefficients
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
