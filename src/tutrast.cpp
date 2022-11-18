@@ -221,7 +221,7 @@ int main(int argc, char* argv[]) {
 
   // //Breadth first search to get the connected components
   vector<bool> vis(V, false);
-  vector< vector<int> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold);
+  vector< vector<int> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold, V);
   cout << channels_idx.size() << endl;
 
   // Loop over the different energy levels
