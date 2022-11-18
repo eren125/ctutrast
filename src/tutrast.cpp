@@ -3,7 +3,7 @@
 #include <chrono>      // timer
 
 #include <algorithm>
-#include<bits/stdc++.h>
+#include <bits/stdc++.h>
 #include <vector>
 #include <queue>
 
@@ -131,42 +131,52 @@ void print_unique_labels(vector < vector<uint16_t> > &unique_labels){
   }
 }
 
-tuple<int,int,int> index_to_point(int &idx, int &nu, int &nv, int &nw){
+template <typename T = uint16_t >
+tuple<T,T,T> index_to_point(T &idx, int &nu, int &nv, int &nw){
     auto d1 = std::div((ptrdiff_t)idx, (ptrdiff_t)nu);
     auto d2 = std::div(d1.quot, (ptrdiff_t)nv);
-    int u = (int) d1.rem;
-    int v = (int) d2.rem;
-    int w = (int) d2.quot;
+    T u = (T) d1.rem;
+    T v = (T) d2.rem;
+    T w = (T) d2.quot;
   return {u, v, w};
 }
 
-vector< vector<int> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold) {
-  vector< vector<int> > bfs_traversal_clusters;
-  int idx = 0;
-  for (int w = 0; w != grid.nw; ++w)
-  for (int v = 0; v != grid.nv; ++v)
-  for (int u = 0; u != grid.nu; ++u, ++idx) {
+template <typename T = uint16_t >
+vector< vector<T> > bfsOfGraph(vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold, size_t &V) {
+  vector< vector<T> > bfs_traversal_clusters;
+  T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
+  for (int idx = 0; idx != V; ++idx) {
     if (!vis[idx]) {
       vis[idx] = true;
       if (grid.data[idx]<energy_threshold) {
-        queue<int> q;
+        queue<T> q;
         q.push(idx);
-        vector<int> bfs_traversal;
+        vector<T> bfs_traversal;
         while (!q.empty()) {
-          int g_node = q.front();
+          T g_node = q.front();
           q.pop();
           bfs_traversal.push_back(g_node);
-          int u_node, v_node, w_node;
+          T u_node, v_node, w_node;
           tie(u_node, v_node, w_node) = index_to_point(g_node,grid.nu,grid.nv,grid.nw);
-          for(int a=-1; a!=2;a++)
-          for(int b=-1; b!=2;b++)
-          for(int c=-1; c!=2;c++){
+          for(int8_t a=-1; a!=2;a++)
+          for(int8_t b=-1; b!=2;b++)
+          for(int8_t c=-1; c!=2;c++){
             if (a==0 && b==0 && c==0){continue;}
-            int it = grid.index_n(u_node+a,v_node+b,w_node+c);
-            if (!vis[it]) {
-              vis[it] = true;
-              if (grid.data[it]<energy_threshold) {
-                q.push(it);
+            T u_temp, v_temp, w_temp;
+            if (a==1 && u_node == nu-1) u_temp = 0; 
+            else if (a==-1 && u_node == 0) u_temp = nu - 1;
+            else u_temp = (T) u_node + a;
+            if (b==1 && v_node == nv-1) v_temp = 0; 
+            else if (b==-1 && v_node == 0) v_temp = nv - 1;
+            else v_temp = (T) v_node + b;
+            if (c==1 && w_node == nw-1) w_temp = 0; 
+            else if (c==-1 && w_node == 0) w_temp = nw - 1;
+            else w_temp = (T) w_node + c;
+            T idx_temp = (w_temp * nv + v_temp) * nu + u_temp;
+            if (!vis[idx_temp]) {
+              vis[idx_temp] = true;
+              if (grid.data[idx_temp]<energy_threshold) {
+                q.push(idx_temp);
               }
             }
           }
@@ -211,7 +221,7 @@ int main(int argc, char* argv[]) {
 
   // //Breadth first search to get the connected components
   vector<bool> vis(V, false);
-  vector< vector<int> > channels_idx = bfsOfGraph(vis, map.grid, energy_threshold);
+  vector< vector<int> > channels_idx = bfsOfGraph<uint32_t>(vis, map.grid, energy_threshold);
   cout << channels_idx.size() << endl;
 
   // Loop over the different energy levels
