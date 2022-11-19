@@ -87,6 +87,7 @@ int main(int argc, char* argv[]) {
       uint8_t* channel_labels_temp = new uint8_t[V]();
       bfsOfGraph(&channel_labels_temp, vis, map.grid, energy_threshold_temp, V, N_temp);
       cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_temp << " components " << energy_threshold_temp << endl;
+      // if N_temp changes save it 
       if (N_temp == 1){
         vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(channel_labels_temp, N_temp, map.grid.nu, map.grid.nv, map.grid.nw);
         if (!channel_dimensions_temp[0].empty()) {delete [] channel_labels_temp; break;}
@@ -94,9 +95,7 @@ int main(int argc, char* argv[]) {
       delete [] channel_labels_temp;
     }
   }
-
-
-
+  // TODO Save the TS and the bassins (displacement+energies)
 
   //channel dimension > go from one starting point of a channel apply BFS, and if come back to the starting point 
   // (and traversed a PBC save the direction in which it did)
