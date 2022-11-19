@@ -30,6 +30,14 @@ double grid_calc_enthalpy(gemmi::Grid<double> &grid, double &energy_threshold, d
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
+void vis_reset_from_label(vector<bool> &vis, uint8_t* channel_labels, uint8_t label, const size_t &V){
+  for (size_t i=0; i!=V; i++){
+    if (channel_labels[i]==label) {
+      vis[i] = false;
+    }
+  }
+}
+
 using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
@@ -39,24 +47,17 @@ int main(int argc, char* argv[]) {
   gemmi::Ccp4<double> map;
   // READ MAP that took about 870 ms to make for AEI
   // (AEI time = 13 ms)
-  chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
-  double time = chrono::duration<double, milli>(t_a-t_start).count();
-  cout << time << endl;
   map.read_ccp4_file(grid_file); 
   const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
-  t_a = chrono::high_resolution_clock::now();
-  time = chrono::duration<double, milli>(t_a-t_start).count();
-  cout << time << endl;
 
   // //Breadth first search to get the connected components
   vector<bool> vis(V, false);
   uint8_t* channel_labels = new uint8_t[V]();
   size_t N = 0;
   bfsOfGraph(&channel_labels, vis, map.grid, energy_threshold, V, N);
-  cout << N << endl;
 
-  // TODO if channel_dimensions is a null char, it is a pocket
-  // Array of the dimension for each channel and their direction (X,Y,Z)
+  // Array of the type of channel connectivity in X Y Z but not the dimensionality (BFS to do so)
+  // Used to filter out pockets no 
   vector<string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, map.grid.nu, map.grid.nv, map.grid.nw);
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N; label++) { 
@@ -67,29 +68,39 @@ int main(int argc, char* argv[]) {
   }
   cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
-  // Map out unique types of channels and their representing labels (a few labels can constitute the same type of channel)
-  vector < vector<uint8_t> > unique_labels = sym_unique_labels(map.grid, channel_labels, channels);
+  // Vector of channel labels grouped by symmetry
+  vector < vector<uint8_t> > unique_labels = sym_unique_labels(map.grid, channel_labels, channels, min(0.0,energy_threshold));
   print_unique_labels(unique_labels);
 
   // Loop over the different energy levels
-  // size_t array_size = map.grid.nu*map.grid.nv*map.grid.nw;
-  // uint16_t* channel_labels = new uint16_t[array_size](); 
-  // double energy_step = R*temperature; // Can be changed
-  // uint16_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
-  // for (size_t i=0; i<array_size; i++){ 
-  //   double energy = map.grid.data[i];
-  //   if (energy<energy_threshold) {
-  //     channel_labels[i] = max_steps - floor((energy - map.hstats.dmin)/energy_step) + 1;
-  //     if (energy>map.hstats.dmin+max_steps*energy_step){cout << channel_labels[i]<< " ";}
-  //   } // initial labels go from 1 to max_steps+1 according to their closeness to  
-  // }
+  double energy_step = R*temperature;
+  size_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
+  for (auto labels: unique_labels){
+    auto label = labels[0];
+    // Set the max_step according to the min of label
+    double energy_threshold_temp = map.hstats.dmin;
+    size_t N_temp;
+    for (size_t step=1; step<max_steps+1; step++){ 
+      energy_threshold_temp += energy_step;
+      N_temp = 0;
+      vis_reset_from_label(vis, channel_labels, label, V);
+      uint8_t* channel_labels_temp = new uint8_t[V]();
+      bfsOfGraph(&channel_labels_temp, vis, map.grid, energy_threshold_temp, V, N_temp);
+      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_temp << " components " << energy_threshold_temp << endl;
+      if (N_temp == 1){
+        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(channel_labels_temp, N_temp, map.grid.nu, map.grid.nv, map.grid.nw);
+        if (!channel_dimensions_temp[0].empty()) {delete [] channel_labels_temp; break;}
+      }
+      delete [] channel_labels_temp;
+    }
+  }
+
+
 
 
   //channel dimension > go from one starting point of a channel apply BFS, and if come back to the starting point 
   // (and traversed a PBC save the direction in which it did)
   // Calc the determinent of this matrix to get dimensionality of the channel
-
-
 
   // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
   // double time = chrono::duration<double, milli>(t_a-t_start).count();
@@ -105,6 +116,7 @@ int main(int argc, char* argv[]) {
   // We can do a dichotomy algorithm until a given precision on energy is reached (10-1 kJ/mol)
   // Definition TS = least energy point that connects two previous clusters
 
+  delete [] channel_labels;
   // Calculate diffusion coefficients
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();

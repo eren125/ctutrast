@@ -15,7 +15,7 @@ tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
 }
 
 template <typename T = uint32_t, typename OUT = uint8_t>
-void bfsOfGraph(OUT *cluster_labels[], vector<bool> &vis, gemmi::Grid<double> &grid, double &energy_threshold, size_t V, size_t &N) {
+void bfsOfGraph(OUT *cluster_labels[], vector<bool> &vis, gemmi::Grid<double> &grid, double energy_threshold, size_t V, size_t &N) {
   T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
   T idx = 0;
   for (T w = 0; w != nw; ++w)
@@ -77,8 +77,8 @@ void bfsOfGraph(OUT *cluster_labels[], vector<bool> &vis, gemmi::Grid<double> &g
 }
 
 template <typename T = uint8_t >
-vector<string> channel_dim_array(T* cc_labels, size_t &N_label, int &nu, int &nv, int &nw) {
-  vector<string> channel_dimensions(N_label,"\0");
+vector<string> channel_dim_array(T* cc_labels, size_t N_label, int &nu, int &nv, int &nw) {
+  vector<string> channel_dimensions(N_label);
   vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0)); 
   vector< vector<bool> > present_Y_2d(N_label, vector<bool>(nv,0));
   vector< vector<bool> > present_Z_2d(N_label, vector<bool>(nw,0));
@@ -108,7 +108,7 @@ vector<string> channel_dim_array(T* cc_labels, size_t &N_label, int &nu, int &nv
 }
 
 template <typename T = uint8_t >
-vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, vector<T> channels) {
+vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, vector<T> &channels, double threshold=0) {
   vector < vector<T> > unique_labels;
   vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
   vector<T> labels;
@@ -120,7 +120,7 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
         T label = cc_labels[idx];
         double energy = grid.data[idx];
         auto it = find (channels.begin(), channels.end(), label);
-        if (it != channels.end() && energy<0){ // hard coded change the threshold to a meaningful value
+        if (it != channels.end() && energy<threshold){ // hard coded change the threshold to a meaningful value
           it = find (labels.begin(), labels.end(), label);
           if (it == labels.end()) {
             vector<T> equiv_label;
