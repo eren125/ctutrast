@@ -77,20 +77,22 @@ int main(int argc, char* argv[]) {
   for (auto labels: unique_labels){
     auto label = labels[0];
     double energy_threshold_temp = map.hstats.dmin;
-    size_t N_temp;
+    size_t N_current; size_t N_past; 
     vector<bool> vis = vis_reset_from_label(channel_labels, label, V);
     for (size_t step=1; step<max_steps+1; step++){ 
       energy_threshold_temp += energy_step;
-      N_temp = 0;
+      N_current = 0;
       uint8_t* channel_labels_temp = new uint8_t[V]();
-      bfsOfGraph(&channel_labels_temp, vis, map.grid, energy_threshold_temp, V, N_temp);
-      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_temp << " components " << energy_threshold_temp << endl;
-      // if N_temp changes save it 
-      if (N_temp == 1){
-        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(channel_labels_temp, N_temp, map.grid.nu, map.grid.nv, map.grid.nw);
+      bfsOfGraph(&channel_labels_temp, vis, map.grid, energy_threshold_temp, V, N_current);
+      if (step > 1 && (N_current != N_past)) {cout << "Change" << endl;}
+      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << endl;
+      // if N_current changes save it 
+      if (N_current == 1){
+        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(channel_labels_temp, N_current, map.grid.nu, map.grid.nv, map.grid.nw);
         if (!channel_dimensions_temp[0].empty()) {delete [] channel_labels_temp; break;}
       }
       delete [] channel_labels_temp;
+      N_past = N_current;
     }
   }
   // TODO Save the TS and the bassins (displacement+energies)
