@@ -30,12 +30,12 @@ double grid_calc_enthalpy(gemmi::Grid<double> &grid, double &energy_threshold, d
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-void vis_reset_from_label(vector<bool> &vis, uint8_t* channel_labels, uint8_t label, const size_t &V){
+vector<bool> vis_reset_from_label(uint8_t* channel_labels, uint8_t label, const size_t &V){
+  vector<bool> vis(V, true);
   for (size_t i=0; i!=V; i++){
-    if (channel_labels[i]==label) {
-      vis[i] = false;
-    }
+    if (channel_labels[i]==label) {vis[i] = false;}
   }
+  return vis;
 }
 
 using namespace std;
@@ -51,10 +51,9 @@ int main(int argc, char* argv[]) {
   const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
 
   // //Breadth first search to get the connected components
-  vector<bool> vis(V, false);
   uint8_t* channel_labels = new uint8_t[V]();
   size_t N = 0;
-  bfsOfGraph(&channel_labels, vis, map.grid, energy_threshold, V, N);
+  bfsOfGraph(&channel_labels, vector<bool>(V, false), map.grid, energy_threshold, V, N);
 
   // Array of the type of channel connectivity in X Y Z but not the dimensionality (BFS to do so)
   // Used to filter out pockets no 
@@ -77,13 +76,12 @@ int main(int argc, char* argv[]) {
   size_t max_steps = floor((energy_threshold-map.hstats.dmin)/energy_step);
   for (auto labels: unique_labels){
     auto label = labels[0];
-    // Set the max_step according to the min of label
     double energy_threshold_temp = map.hstats.dmin;
     size_t N_temp;
+    vector<bool> vis = vis_reset_from_label(channel_labels, label, V);
     for (size_t step=1; step<max_steps+1; step++){ 
       energy_threshold_temp += energy_step;
       N_temp = 0;
-      vis_reset_from_label(vis, channel_labels, label, V);
       uint8_t* channel_labels_temp = new uint8_t[V]();
       bfsOfGraph(&channel_labels_temp, vis, map.grid, energy_threshold_temp, V, N_temp);
       cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_temp << " components " << energy_threshold_temp << endl;

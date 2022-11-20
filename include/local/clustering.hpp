@@ -15,7 +15,7 @@ tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
 }
 
 template <typename T = uint32_t, typename OUT = uint8_t>
-void bfsOfGraph(OUT *cluster_labels[], vector<bool> &vis, gemmi::Grid<double> &grid, double energy_threshold, size_t V, size_t &N) {
+void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, gemmi::Grid<double> &grid, const double &energy_threshold, const size_t &V, size_t &N) {
   T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
   T idx = 0;
   for (T w = 0; w != nw; ++w)
