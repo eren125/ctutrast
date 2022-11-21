@@ -1,3 +1,5 @@
+#include <iostream>      // printing
+
 #include <gemmi/grid.hpp>
 #include <algorithm>
 #include <vector>
@@ -14,9 +16,53 @@ tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
   return {u, v, w};
 }
 
+template <typename T = uint32_t>
+void neighbor_search_6(queue< tuple<T,T,T,T> > &q, vector<bool> &vis, T &nu, T &nv, T &nw, T &nuv, T &u_node, T &v_node, T &w_node, T &idx_node, const double &energy_threshold, const gemmi::Grid<double> &grid){
+// Checks the 6 neighbor voxels linked by the face and queue them if they are not visited and have the good amount of energy
+  T temp=0;
+  T idx_temp = idx_node;
+  if (u_node == nu-1) {temp=0; idx_temp=idx_node-u_node;} // +1 0 0
+  else {temp=u_node+1; idx_temp=idx_node+1;}
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({temp, v_node, w_node,idx_temp});
+  }
+  if (u_node == 0) {temp = nu-1;idx_temp=idx_node+temp;} // -1 0 0
+  else {temp = u_node-1; idx_temp=idx_node-1;}
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({temp, v_node, w_node,idx_temp});
+  }
+  if (v_node == nv-1) {temp = 0; idx_temp=idx_node-nu*v_node;} // 0 +1 0
+  else {temp = v_node+1; idx_temp=idx_node+nu;}
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({u_node, temp, w_node,idx_temp});
+  }
+  if (v_node == 0) {temp = nv-1; idx_temp=idx_node+nu*temp;} // 0 -1 0
+  else {temp = v_node-1; idx_temp=idx_node-nu;}
+  idx_temp = (T) grid.index_q(u_node, temp, w_node); 
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({u_node, temp, w_node,idx_temp});
+  }
+  if (w_node == nw-1) {temp = 0; idx_temp=idx_node-nuv*w_node;} // 0 0 +1
+  else {temp = w_node+1; idx_temp=idx_node+nuv;}
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({u_node, v_node, temp,idx_temp});
+  }
+  if (w_node == 0) {temp = nw-1; idx_temp=idx_node+nuv*temp;} // 0 0 -1
+  else {temp = w_node-1; idx_temp=idx_node-nuv;}
+  if (!vis[idx_temp]) {
+    vis[idx_temp] = true;
+    if (grid.data[idx_temp]<energy_threshold) q.push({u_node, v_node, temp,idx_temp});
+  }
+}
+
 template <typename T = uint32_t, typename OUT = uint8_t>
-void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, gemmi::Grid<double> &grid, const double &energy_threshold, const size_t &V, size_t &N) {
-  T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw; 
+void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, const gemmi::Grid<double> &grid, const double &energy_threshold, const size_t &V, size_t &N) {
+  T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw, nuv = nu*nv;
   T idx = 0;
   for (T w = 0; w != nw; ++w)
   for (T v = 0; v != nv; ++v)
@@ -24,52 +70,16 @@ void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, gemmi::Grid<double> &gr
     if (!vis[idx]) {
       vis[idx] = true;
       if (grid.data[idx]<energy_threshold){
-        queue< tuple<T,T,T> > q;
-        q.push({u, v, w});
+        queue< tuple<T,T,T,T> > q;
+        q.push({u, v, w,idx});
         N = N+1;
+        OUT cluster_num = (OUT) N;
         while (!q.empty()) {
-          T u_node, v_node, w_node;
-          tie(u_node, v_node, w_node) = q.front();
+          T u_node, v_node, w_node, idx_node;
+          tie(u_node, v_node, w_node,idx_node) = q.front();
           q.pop();
-          T g_node = (T) grid.index_q(u_node, v_node, w_node);
-          (*cluster_labels)[g_node] = (OUT) N;
-          T temp;
-          if (u_node == nu-1) temp = 0; else temp = u_node+1;
-          T idx_temp = (T) grid.index_q(temp, v_node, w_node);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({temp, v_node, w_node});
-          }
-          if (u_node == 0) temp = nu-1; else temp = u_node-1;
-          idx_temp = (T) grid.index_q(temp, v_node, w_node);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({temp, v_node, w_node});
-          }
-          if (v_node == nv-1) temp = 0; else temp = v_node+1;
-          idx_temp = (T) grid.index_q(u_node, temp, w_node);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({u_node, temp, w_node});
-          }
-          if (v_node == 0) temp = nv-1; else temp = v_node-1;
-          idx_temp = (T) grid.index_q(u_node, temp, w_node);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({u_node, temp, w_node});
-          }
-          if (w_node == nw-1) temp = 0; else temp = w_node+1;
-          idx_temp = (T) grid.index_q(u_node, v_node, temp);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({u_node, v_node, temp});
-          }
-          if (w_node == 0) temp = nw-1; else temp = w_node-1;
-          idx_temp = (T) grid.index_q(u_node, v_node, temp);
-          if (!vis[idx_temp]) {
-            vis[idx_temp] = true;
-            if (grid.data[idx_temp]<energy_threshold) q.push({u_node, v_node, temp});
-          }
+          (*cluster_labels)[idx_node] = cluster_num;
+          neighbor_search_6<T>(q, vis, nu, nv, nw, nuv, u_node, v_node, w_node, idx_node, energy_threshold, grid);
         }
       }
     }
@@ -155,5 +165,32 @@ void print_unique_labels(vector < vector<T> > &unique_labels){
     }
     count++;
     std::cout << endl;
+  }
+}
+
+template <typename T = uint32_t, typename OUT = uint8_t>
+void bfsOfGraph_comparison(OUT *cluster_labels[], OUT *cluster_labels_past[], vector<bool> vis, const gemmi::Grid<double> &grid, const double &energy_threshold, const size_t &V, vector< vector<uint8_t>> &correspondance, size_t &N) {
+  T nu=(T)grid.nu, nv=(T)grid.nv, nw=(T)grid.nw, nuv = nu*nv;
+  T idx = 0;
+  for (T w = 0; w != nw; ++w)
+  for (T v = 0; v != nv; ++v)
+  for (T u = 0; u != nu; ++u, ++idx) {
+    if (!vis[idx]) {
+      vis[idx] = true;
+      if (grid.data[idx]<energy_threshold){
+        queue< tuple<T,T,T,T> > q;
+        q.push({u, v, w,idx});
+        N = N+1;
+        OUT cluster_num = (OUT) N;
+        while (!q.empty()) {
+          T u_node, v_node, w_node, idx_node;
+          tie(u_node, v_node, w_node,idx_node) = q.front();
+          q.pop();
+          (*cluster_labels)[idx_node] = cluster_num;
+          neighbor_search_6<T>(q, vis, nu, nv, nw, nuv, u_node, v_node, w_node, idx_node, energy_threshold, grid);
+          // else {if ((size_t)(*cluster_labels_past)[idx_temp]!=0) {correspondance[(*cluster_labels_past)[idx_temp]].push_back(cluster_num);}}
+        }
+      }
+    }
   }
 }
