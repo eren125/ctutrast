@@ -30,13 +30,6 @@ double grid_calc_enthalpy(gemmi::Grid<double> &grid, double &energy_threshold, d
   return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
 }
 
-vector<bool> vis_reset_from_label(uint8_t* channel_labels, uint8_t label, const size_t &V){
-  vector<bool> vis(V, true);
-  for (size_t i=0; i!=V; i++){
-    if (channel_labels[i]==label) {vis[i] = false;}
-  }
-  return vis;
-}
 
 using namespace std;
 int main(int argc, char* argv[]) {
@@ -70,7 +63,7 @@ int main(int argc, char* argv[]) {
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > unique_labels = sym_unique_labels(map.grid, channel_labels, channels, min(0.0,energy_threshold));
   print_unique_labels(unique_labels);
-  // if there are several types of channels: we need to save the wieght of each channel and do kMC in each (TODO)
+  // if there are several types of channels: we need to save the weight of each channel and do kMC in each (TODO)
 
   // Loop over the different energy levels
   double energy_step = R*temperature;
@@ -78,24 +71,34 @@ int main(int argc, char* argv[]) {
   for (auto labels: unique_labels){
     auto label = labels[0];
     double energy_threshold_temp = map.hstats.dmin;
-    size_t N_current; size_t N_past; 
+    size_t N_current; size_t N_past=0; 
     vector<bool> in_channel = vis_reset_from_label(channel_labels, label, V); // calc weight here later (TODO)
     uint8_t* channel_labels_current = new uint8_t[V]();
     uint8_t* channel_labels_past = new uint8_t[V]();
     for (size_t step=1; step<max_steps+1; step++){ 
       energy_threshold_temp += energy_step;
       N_current = 0;
-      channel_labels_past = channel_labels_current;
-      vector< vector<uint8_t> > correspondance(N_past,vector<uint8_t>());
-      bfsOfGraph_comparison(&channel_labels_current, &channel_labels_past, in_channel, map.grid, energy_threshold_temp, V, correspondance, N_current);
-      if (step > 1 && (N_current != N_past)) {cout << "Change" << endl;}
-      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << endl;
+      bool merged = false;
+      // bfsOfGraph_comparison(&channel_labels_current, &channel_labels_past, in_channel, map.grid, energy_threshold_temp, V, correspondance, N_current, merged);
+      bfsOfGraph(&channel_labels_current, in_channel, map.grid, energy_threshold_temp, V, N_current);
+      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
       // if N_current changes save it 
       if (N_current == 1){
         vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(channel_labels_current, N_current, map.grid.nu, map.grid.nv, map.grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {break;}
+        if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
       }
+      if (step == 1) {
+        // Setup the bassin positions & connections & probability
+
+      }
+      else {
+        check_merge(channel_labels_current, channel_labels_past, N_current, N_past, merged, V);
+        if (merged) {cout << "MERGED ";}
+        else if (N_current != N_past) {cout << "CHANGED " ;}
+      }
+      cout << endl;
       N_past = N_current;
+      channel_labels_past = dup<uint8_t>(channel_labels_current,V); 
     }
   }
   
