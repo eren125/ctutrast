@@ -12,3 +12,4 @@ viz/*
 # !viz/visualize_ccp4.py
 # !viz/requirements.txt
 test/
+refresh.sh
