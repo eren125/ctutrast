@@ -12,26 +12,6 @@
 #define R 8.31446261815324e-3 // kJ/mol/K
 
 using namespace std;
-
-double grid_calc_enthalpy(gemmi::Grid<double> &grid, double &energy_threshold, double &temperature) {
-  double boltzmann_energy_lj = 0;
-  double sum_exp_energy = 0;
-  size_t idx = 0;
-  for (int w = 0; w != grid.nw; ++w)
-    for (int v = 0; v != grid.nv; ++v)
-      for (int u = 0; u != grid.nu; ++u, ++idx) {
-        double energy = grid.data[idx];
-        if (energy < energy_threshold) {
-          double exp_energy = exp(-energy/(R*temperature));
-          sum_exp_energy += exp_energy;
-          boltzmann_energy_lj += exp_energy * energy;
-        }
-      }
-  return boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-}
-
-
-using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
   string grid_file = argv[1];
@@ -39,10 +19,10 @@ int main(int argc, char* argv[]) {
   double energy_threshold = stod(argv[3]); //kJ/mol
   gemmi::Ccp4<double> map;
   // READ MAP that took about 870 ms to make for AEI
-  // (AEI time = 13 ms)
   map.read_ccp4_file(grid_file); 
   const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
-
+  cout << V << endl;
+  
   // //Breadth first search to get the connected components
   uint8_t* channel_labels = new uint8_t[V]();
   size_t N = 0;
@@ -63,7 +43,6 @@ int main(int argc, char* argv[]) {
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(map.grid, channel_labels, channels, min(0.0,energy_threshold));
   print_unique_labels(channel_unique_labels);
-  // if there are several types of channels: we need to save the weight of each channel and do kMC in each (TODO)
 
   // Loop over the different energy levels
   double energy_step = R*temperature;
@@ -90,7 +69,7 @@ int main(int argc, char* argv[]) {
         if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
       }
       if (step == 0) {
-        // Setup the bassin positions  & probability
+        // Setup the bassin positions & connections & probability
         ;
       }
       else {
@@ -106,38 +85,8 @@ int main(int argc, char* argv[]) {
     delete [] bassin_labels_past;
   }
   
-  // TODO Save the TS and the bassins (displacement+energies)
-
-  //channel dimension > go from one starting point of a channel apply BFS, and if come back to the starting point 
-  // (and traversed a PBC save the direction in which it did)
-  // Calc the determinent of this matrix to get dimensionality of the channel
-
-  // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
-  // double time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
-  // t_a = chrono::high_resolution_clock::now();
-  // time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
-
-  // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of 
-  // another channels
-  // These bassins are needed anyway
-  // Loop over RT (if number of clusters increase then study in detail to detect TS)
-  // We can do a dichotomy algorithm until a given precision on energy is reached (10-1 kJ/mol)
-  // Definition TS = least energy point that connects two previous clusters
-
   delete [] channel_labels;
-  // Calculate diffusion coefficients
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-  // double enthalpy_surface=grid_calc_enthalpy(map.grid, energy_threshold, temperature);
-  // cout << grid_file << "," << enthalpy_surface << "," << endl;
   cout << elapsed_time_ms*0.001 << endl;
-
-  // // Check the labels
-  // for (size_t i=0; i<array_size; i++) {
-  //   if (cc_labels[i]==0){map.grid.data[i] = 1e3;}
-  //   else {map.grid.data[i] = cc_labels[i];}
-  // }
-  // map.write_ccp4_map("grid/KAXQIL_clean_14_0.1_100_l.ccp4");
 }
