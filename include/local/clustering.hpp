@@ -25,16 +25,14 @@ tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
   return {u, v, w};
 }
 
-vector<bool> setup_channel_config(uint8_t* channel_labels, uint8_t const &label, const size_t &V, vector<double> const &data, double &min){
-  vector<bool> vis(V, true);
+void setup_channel_config(vector<bool> &in_channel, uint8_t* channel_labels, uint8_t const &label, const size_t &V, vector<double> const &data, double &min){
   bool first = false;
   for (size_t i=0; i!=V; i++){
     if (channel_labels[i]==label) {
-      vis[i] = false;
+      in_channel[i] = false;
       if (data[i] < min) {min = data[i];}
     }
   }
-  return vis;
 }
 
 template <typename T = uint32_t>
@@ -178,7 +176,7 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
 
 template <typename T = uint8_t >
 void print_unique_labels(vector < vector<T> > &unique_labels){
-  cout << "Unique channels" << endl;
+  cout << "Equivalent channels" << endl;
   int count_ = 0;
   for (vector<T> equiv_labels: unique_labels){
     for (T label: equiv_labels){

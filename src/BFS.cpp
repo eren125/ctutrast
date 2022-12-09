@@ -49,8 +49,11 @@ int main(int argc, char* argv[]) {
   // double energy_step = 1; // kJ/mol
   for (auto labels: channel_unique_labels){
     auto label = labels[0];
-    double min_energy = energy_threshold;
-    vector<bool> in_channel = setup_channel_config(channel_labels, label, V, map.grid.data, min_energy);
+
+    double min_energy = energy_threshold; 
+    vector<bool> in_channel(V, true); 
+    setup_channel_config(in_channel, channel_labels, label, V, map.grid.data, min_energy);
+    
     double energy_threshold_temp = min_energy + 0.01;
     size_t max_steps = floor((energy_threshold-energy_threshold_temp)/energy_step);
     size_t N_current; size_t N_past=0; 
