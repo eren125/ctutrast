@@ -108,7 +108,7 @@ void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, const gemmi::Grid<doubl
 template <typename T = uint8_t >
 vector<string> channel_dim_array(T* cc_labels, size_t N_label, int &nu, int &nv, int &nw) {
   vector<string> channel_dimensions(N_label);
-  vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0)); 
+  vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0));
   vector< vector<bool> > present_Y_2d(N_label, vector<bool>(nv,0));
   vector< vector<bool> > present_Z_2d(N_label, vector<bool>(nw,0));
   size_t loc = 0;
