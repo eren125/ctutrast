@@ -17,7 +17,7 @@ double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double i
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
 }
 
-string generate_ccp4name(string structure_file, double spacing, double energy_threshold) {
+string generate_ccp4name(string &structure_file, double &spacing, double &energy_threshold, string &ads_name) {
   char buffer[20];  // maximum expected length of the float
   string structure_name(structure_file);
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
@@ -29,6 +29,8 @@ string generate_ccp4name(string structure_file, double spacing, double energy_th
   structure_name += "_";
   snprintf(buffer, 20, "%g", energy_threshold);
   structure_name += buffer;
+  structure_name += "_";
+  structure_name += ads_name;
   structure_name += ".ccp4";
   return structure_name;
 }
@@ -190,7 +192,7 @@ int main(int argc, char* argv[]) {
   map.grid = grid;
   map.setup(NAN, gemmi::MapSetup::ReorderOnly);
   map.update_ccp4_header(2, true);
-  string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold);
+  string filename = generate_ccp4name(structure_file, approx_spacing, energy_threshold, element_guest_str);
   map.write_ccp4_map(filename);
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
