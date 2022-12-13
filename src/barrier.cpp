@@ -47,6 +47,7 @@ int main(int argc, char* argv[]) {
   // Loop over the different energy levels
   double energy_step = R*temperature;
   // double energy_step = 1; // kJ/mol
+  vector <double> energy_barriers;
   for (auto labels: channel_unique_labels){
     auto label = labels[0];
 
@@ -59,7 +60,7 @@ int main(int argc, char* argv[]) {
     size_t N_current; size_t N_past=0; 
     // calc weight here later (TODO)
     uint8_t* bassin_labels_current = new uint8_t[V]();
-    //TODO implement a dichotomy search
+    // TODO implement a dichotomy search
     for (size_t step=0; step<max_steps+1; step++){ 
       energy_threshold_temp += energy_step;
       N_current = 0;
@@ -73,8 +74,11 @@ int main(int argc, char* argv[]) {
       N_past = N_current;
     }
     delete [] bassin_labels_current;
+    energy_barriers.push_back(energy_threshold_temp-min_energy);
   }
-  
+  for (auto energy: energy_barriers){
+    cout << energy << endl;
+  }
   delete [] channel_labels;
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
