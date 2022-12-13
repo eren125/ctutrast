@@ -1,5 +1,6 @@
 #include <local/forcefield.hpp> // define forcefield parameters
 #include <local/boxsetting.hpp> // set rectangular shaped box using periodic boundary conditions
+#include <local/util.hpp> // 
 
 #include <chrono>
 
@@ -10,11 +11,8 @@
 #include <gemmi/grid.hpp>
 #include <gemmi/ccp4.hpp>
 
-// Set key constants
-#define R 8.31446261815324e-3 // kJ/mol/K
-
-double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double inv_cutoff_6, double inv_distance_12, double inv_cutoff_12) {
-  return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
+double energy_lj(double epsilon, double sigma_6, double inv_distance_6, double inv_cutoff_6, double inv_distance_12, double inv_cutoff_12, double const R_const = 8.31446261815324e-3) {
+  return 4*R_const*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
 }
 
 string generate_ccp4name(string &structure_file, double &spacing, double &energy_threshold, string &ads_name) {
@@ -34,9 +32,7 @@ string generate_ccp4name(string &structure_file, double &spacing, double &energy
   structure_name += ".ccp4";
   return structure_name;
 }
-
 using namespace std;
-namespace cif = gemmi::cif;
 
 int main(int argc, char* argv[]) {
   // Set up Input Variables
@@ -64,14 +60,14 @@ int main(int argc, char* argv[]) {
   double sigma_guest = epsilon_sigma.second;
 
   // Cif read
-  cif::Document doc = cif::read_file(structure_file);
-  cif::Block block = doc.sole_block();
+  gemmi::cif::Document doc = gemmi::cif::read_file(structure_file);
+  gemmi::cif::Block block = doc.sole_block();
   gemmi::SmallStructure structure = gemmi::make_small_structure_from_block(block);
   int spacegroup_number = 1;
   for (const char* tag : {"_space_group_IT_number",
                           "_symmetry_Int_Tables_number"})
     if (const string* val = block.find_value(tag)) {
-      spacegroup_number = (int) cif::as_number(*val);
+      spacegroup_number = (int) gemmi::cif::as_number(*val);
       break;
     }
   const gemmi::SpaceGroup* sg = gemmi::find_spacegroup_by_number(spacegroup_number);
@@ -184,7 +180,7 @@ int main(int argc, char* argv[]) {
           size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
           grid.data[mate_idx] = energy;
         }
-      }
+  }
 
   // Save grid in ccp4 binary format
   // TODO Compact the format using asymetric units + masks

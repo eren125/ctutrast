@@ -5,11 +5,29 @@
 #include <local/clustering.hpp>
 
 #include <gemmi/ccp4.hpp>
-#include <gemmi/asumask.hpp>
+#include <gemmi/grid.hpp>
 
 #include <connected-components-3d/cc3d.hpp>
 
 #define R 8.31446261815324e-3 // kJ/mol/K
+
+string generate_ccp4name(string &structure_file, double &spacing, double &energy_threshold, string &ads_name) {
+  char buffer[20];  // maximum expected length of the float
+  string structure_name(structure_file);
+  structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
+  string::size_type const p(structure_name.find_last_of('.'));
+  structure_name = structure_name.substr(0, p);
+  structure_name = "grid/" + structure_name + "_";
+  snprintf(buffer, 20, "%g", spacing);
+  structure_name += buffer;
+  structure_name += "_";
+  snprintf(buffer, 20, "%g", energy_threshold);
+  structure_name += buffer;
+  structure_name += "_";
+  structure_name += ads_name;
+  structure_name += ".ccp4";
+  return structure_name;
+}
 
 using namespace std;
 int main(int argc, char* argv[]) {
@@ -21,7 +39,6 @@ int main(int argc, char* argv[]) {
   // READ MAP that took about 870 ms to make for AEI
   map.read_ccp4_file(grid_file); 
   const size_t V = map.grid.nu*map.grid.nv*map.grid.nw;
-  cout << V << endl;
   
   // //Breadth first search to get the connected components
   uint8_t* channel_labels = new uint8_t[V]();
@@ -34,15 +51,15 @@ int main(int argc, char* argv[]) {
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N; label++) { 
     if (channel_dimensions[label]!="\0") {
-      cout << label + 1 << " " << channel_dimensions[label] << endl;
+      // cout << label + 1 << " " << channel_dimensions[label] << endl;
       channels.push_back(label+1);
     }
   }
-  cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+  // cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
 
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(map.grid, channel_labels, channels, min(0.0,energy_threshold));
-  print_unique_labels(channel_unique_labels);
+  // print_unique_labels(channel_unique_labels);
 
   // Loop over the different energy levels
   double energy_step = R*temperature;
@@ -69,18 +86,18 @@ int main(int argc, char* argv[]) {
       if (N_current == 1){
         // implement a way to calc channel dim and compare it to the initial one
         vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, map.grid.nu, map.grid.nv, map.grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
+        if (!channel_dimensions_temp[0].empty()) {break;}
       }
       N_past = N_current;
     }
     delete [] bassin_labels_current;
     energy_barriers.push_back(energy_threshold_temp-min_energy);
   }
-  for (auto energy: energy_barriers){
-    cout << energy << endl;
-  }
+
   delete [] channel_labels;
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-  cout << elapsed_time_ms*0.001 << endl;
+  for (auto energy: energy_barriers){
+    cout << energy << "," << elapsed_time_ms*0.001 << endl;
+  }
 }
