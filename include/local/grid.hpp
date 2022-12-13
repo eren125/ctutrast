@@ -134,7 +134,7 @@ void setup_grid(std::string &structure_file, std::string &forcefield_path, doubl
         }
         else if (value != 0 && value >= energy_threshold){
           if (value < 1e3) { // exp(-1e3) =2e-434    and   no enthalpies over 150
-            double exp_energy = exp(-value/   (R*temperature));
+            double exp_energy = exp(-value/(R*temperature));
             sum_exp_energy += exp_energy;
             boltzmann_energy_lj += exp_energy * value;
           }
