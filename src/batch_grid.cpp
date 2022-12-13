@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
   double approx_spacing = stod(argv[6]);
   double energy_threshold = 40;
   if (argv[7]) {energy_threshold = stod(argv[7]);}
-  double access_coeff = 0.85;
+  double access_coeff = 0.8;
   if (argv[8]) {access_coeff = stod(argv[8]);}
 
   // key constants
@@ -30,8 +30,8 @@ int main(int argc, char* argv[]) {
   size_t sample_size;
   gemmi::Grid<double> grid;
 
-  setup_grid(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold, 
-  molar_mass, boltzmann_energy_lj, sum_exp_energy, sample_size, volume, grid, access_coeff=access_coeff);
+  setup_grid(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
+  molar_mass, boltzmann_energy_lj, sum_exp_energy, sample_size, volume, grid, false);
 
   string structure_name = trim(structure_file);
   double Framework_density = molar_mass/(N_A*volume*1e-30); // g/m3

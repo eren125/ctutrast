@@ -15,7 +15,7 @@ std::string trim(std::string structure_file) {
   return structure_name;
 }
 
-void setup_grid(std::string &structure_file, std::string &forcefield_path, double &temperature, double &cutoff, std::string &element_guest_str, double &approx_spacing, double &energy_threshold, double &molar_mass, double &boltzmann_energy_lj, double &sum_exp_energy, size_t &sample_size, double &volume, gemmi::Grid<double> &grid, bool calc_block=true, double access_coeff=0.85) {
+void setup_grid(std::string &structure_file, std::string &forcefield_path, double &temperature, double &cutoff, std::string &element_guest_str, double &approx_spacing, double &energy_threshold, double &access_coeff, double &molar_mass, double &boltzmann_energy_lj, double &sum_exp_energy, size_t &sample_size, double &volume, gemmi::Grid<double> &grid, bool calc_block=true) {
 
   double const R = 8.31446261815324e-3; // kJ/mol/K
   double cutoff_sq = cutoff*cutoff;
@@ -64,6 +64,7 @@ void setup_grid(std::string &structure_file, std::string &forcefield_path, doubl
   int m_max = int(std::abs((cutoff + sigma_guest) / b_y)) + 1; 
   int l_max = int(std::abs((cutoff + sigma_guest) / c_z)) + 1; 
 
+  // TODO add symmetry here
   // center position used to reduce the neighbor list
   gemmi::Position center_pos = gemmi::Position(a_x/2,b_y/2,c_z/2);
   double large_cutoff = cutoff + center_pos.length();
@@ -129,17 +130,8 @@ void setup_grid(std::string &structure_file, std::string &forcefield_path, doubl
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         double value = grid.data[idx];
-        if (visited[idx]){
-          continue;
-        }
-        else if (value != 0 && value >= energy_threshold){
-          if (value < 1e3) { // exp(-1e3) =2e-434    and   no enthalpies over 150
-            double exp_energy = exp(-value/(R*temperature));
-            sum_exp_energy += exp_energy;
-            boltzmann_energy_lj += exp_energy * value;
-          }
-          continue;
-        }
+        if (visited[idx]) {continue;}
+        else if (value != 0 && value >= energy_threshold) {continue;}
         grid.data[idx] = 0;
         gemmi::Fractional V_fract = grid.point_to_fractional({u,v,w,&value});
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
@@ -174,5 +166,4 @@ void setup_grid(std::string &structure_file, std::string &forcefield_path, doubl
         sum_exp_energy += sym_count * exp_energy;
         boltzmann_energy_lj += sym_count * exp_energy * energy;
       }
-
 }
