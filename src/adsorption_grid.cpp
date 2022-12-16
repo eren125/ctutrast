@@ -33,8 +33,15 @@ int main(int argc, char* argv[]) {
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   string element_guest_str = argv[5];
   double approx_spacing = stod(argv[6]);
-  double access_coeff = 0.85;
-  if (argv[7]) {access_coeff = stod(argv[7]);}
+  double energy_threshold = 40;
+  if (argv[7]) {energy_threshold = stod(argv[7]);}
+  double access_coeff = 0.8;
+  if (argv[8]) {access_coeff = stod(argv[8]);}
+
+  // Error catch
+  if ( temperature < 0 ) {throw invalid_argument( "Received negative value for the Temperature" );}
+  if ( energy_threshold < 0 ) {throw invalid_argument( "Received negative value for the Energy Threshold" );}
+  if ( access_coeff > 1 || access_coeff < 0 ) {throw invalid_argument( "Accessibility Coefficient out of range (Read the purpose of this coeff)" );}
 
   // key constants
   double const R = 8.31446261815324e-3; // kJ/mol/K
@@ -85,6 +92,7 @@ int main(int argc, char* argv[]) {
   grid.spacegroup = sg;
   grid.set_unit_cell(structure.cell);
   grid.set_size_from_spacing(approx_spacing, gemmi::GridSizeRounding::Nearest );
+  size_t sample_size = grid.data.size();
 
   // Auxiliary variables
   string element_host_str;
@@ -110,7 +118,11 @@ int main(int argc, char* argv[]) {
     sigma_sq = sigma * sigma;
     sigma_6 = sigma_sq * sigma_sq * sigma_sq;
     // Quick calculation in the occupied space
-    grid.use_points_around<true>(site.fract, access_coeff*sigma, [&](double& ref, double d2){ref = 1;}, false);
+    grid.use_points_around<true>(site.fract, access_coeff*sigma, [&](double& ref, double d2){
+      double inv_distance_6 = 1.0 / (d2*d2*d2);
+      double inv_distance_12 = inv_distance_6 * inv_distance_6;
+      ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12, R);
+    }, false);
     gemmi::Element el(element_host_str.c_str());
     molar_mass += el.weight();
     // neighbor list within rectangular box
@@ -143,14 +155,14 @@ int main(int argc, char* argv[]) {
 
   // Symmetry-aware grid construction
   vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
+  vector<bool> visited(sample_size, false); 
   size_t idx = 0;
   for (int w = 0; w != grid.nw; ++w)
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
-        double value = grid.data[idx];
-        if (value!=0.0)
-          continue;
-        gemmi::Fractional V_fract = grid.point_to_fractional({u,v,w,&value});
+        if (visited[idx]) {continue;}
+        else if (grid.data[idx] >= energy_threshold) {continue;}
+        gemmi::Fractional V_fract = grid.get_fractional(u,v,w);
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
         gemmi::Position pos = gemmi::Position(structure.cell.orthogonalize(V_fract));
         double energy = 0;
@@ -177,6 +189,7 @@ int main(int argc, char* argv[]) {
             continue;
           sym_count++;
           grid.data[mate_idx] = energy;
+          visited[mate_idx] = true;
         }
         double exp_energy = exp(-energy/(R*temperature));
         sum_exp_energy += sym_count * exp_energy;
@@ -186,7 +199,7 @@ int main(int argc, char* argv[]) {
   string structure_name = trim(structure_file);
   double Framework_density = molar_mass/(N_A*structure.cell.volume*1e-30); // g/m3
   double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-  double henry_surface = sum_exp_energy/(R*temperature*grid.data.size()*Framework_density);    // mol/kg/Pa
+  double henry_surface = sum_exp_energy/(sample_size*R*temperature*Framework_density);    // mol/kg/Pa
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
   double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
   // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)

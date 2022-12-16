@@ -18,6 +18,11 @@ int main(int argc, char* argv[]) {
   double access_coeff = 0.8;
   if (argv[8]) {access_coeff = stod(argv[8]);}
 
+  // Error catch
+  if ( temperature < 0 ) {throw invalid_argument( "Received negative value for the Temperature" );}
+  if ( energy_threshold < 0 ) {throw invalid_argument( "Received negative value for the Energy Threshold" );}
+  if ( access_coeff > 1 || access_coeff < 0 ) {throw invalid_argument( "Accessibility Coefficient out of range (Read the purpose of this coeff)" );}
+
   // key constants
   double const R = 8.31446261815324e-3; // kJ/mol/K
   double const N_A = 6.02214076e23;    // part/mol
@@ -26,15 +31,14 @@ int main(int argc, char* argv[]) {
   double molar_mass = 0;
   double boltzmann_energy_lj = 0;
   double sum_exp_energy = 0;
-  double volume;
   size_t sample_size;
   gemmi::Grid<double> grid;
 
-  setup_grid(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
-  molar_mass, boltzmann_energy_lj, sum_exp_energy, sample_size, volume, grid, false);
+  energy_grid_opt(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
+  molar_mass, boltzmann_energy_lj, sum_exp_energy, sample_size, grid, true);
 
   string structure_name = trim(structure_file);
-  double Framework_density = molar_mass/(N_A*volume*1e-30); // g/m3
+  double Framework_density = molar_mass/(N_A*grid.unit_cell.volume*1e-30); // g/m3
   double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
   double henry_surface = sum_exp_energy/(sample_size*R*temperature*Framework_density);    // mol/kg/Pa
   chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
