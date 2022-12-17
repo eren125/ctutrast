@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
   size_t sample_size;
   gemmi::Grid<double> grid;
 
-  energy_grid(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
+  energy_grid_opt(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
   molar_mass, boltzmann_energy_lj, sum_exp_energy, sample_size, grid, true);
 
   string structure_name = trim(structure_file);
