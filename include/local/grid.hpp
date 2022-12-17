@@ -3,6 +3,8 @@
 #include <gemmi/cif.hpp>        // file -> cif::Document
 #include <gemmi/grid.hpp>       // grid construction
 
+#define MAX_EXP 1e3 // exp(-1000) = 1.34*10^434, for argument above we skip calculation
+
 double energy_lj(double &epsilon, double sigma_6, double &inv_distance_6, double &inv_cutoff_6, double &inv_distance_12, double &inv_cutoff_12, double const R) {
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
 }
@@ -77,6 +79,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
    * 
    */
   double const R = 8.31446261815324e-3; // kJ/mol/K
+  double const MAX_ENERGY = MAX_EXP*R*temperature; // kJ/mol/K
   double cutoff_sq = cutoff*cutoff;
   double cutoff_6 = cutoff_sq*cutoff_sq*cutoff_sq;
   double inv_cutoff_6 = 1.0/cutoff_6;
@@ -103,7 +106,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
   double large_cutoff = cutoff + center_pos.length();
   // Batch_size
   double approx_block_size = 3; // angstrom
-  set_batch_cells(approx_block_size, grid);
+  // set_batch_cells(approx_block_size, grid);
   // Creates a list of sites within the cutoff
   std::vector<std::array<double,6>> supracell_sites;
   std::string element_host_str_temp = "X";
@@ -127,7 +130,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
         double inv_distance_12 = inv_distance_6 * inv_distance_6;
         ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12, R);
       }
-      else {ref = 1e3;}
+      else {ref = MAX_ENERGY;}
     }, false);
     gemmi::Element el(element_host_str.c_str());
     molar_mass += el.weight();
@@ -170,7 +173,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
         gemmi::Fractional V_fract = grid.get_fractional(u,v,w);
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
         gemmi::Position pos = gemmi::Position(grid.unit_cell.orthogonalize(V_fract));
-        double energy = 0;
+        double energy = 0; bool skip = false;
         for(std::array<double,6> pos_epsilon_sigma : supracell_sites) {
           double energy_temp = 0;
           gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
@@ -182,6 +185,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
             double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
             double inv_distance_12 = inv_distance_6 * inv_distance_6;
             energy += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12, R);
+            if (energy>MAX_ENERGY) {skip = true; break;}
           }
         }
         // symmetry
@@ -197,9 +201,11 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
           grid.data[mate_idx] = energy;
           visited[mate_idx] = true;
         }
-        double exp_energy = exp(-energy/(R*temperature));
-        sum_exp_energy += sym_count * exp_energy;
-        boltzmann_energy_lj += sym_count * exp_energy * energy;
+        if (skip==false) {
+          double exp_energy = exp(-energy/(R*temperature));    
+          sum_exp_energy += sym_count * exp_energy;
+          boltzmann_energy_lj += sym_count * exp_energy * energy;
+        }
       }
 }
 
@@ -226,6 +232,7 @@ void energy_grid(std::string &structure_file, std::string &forcefield_path, doub
    * 
    */
   double const R = 8.31446261815324e-3; // kJ/mol/K
+  double const MAX_ENERGY = MAX_EXP*R*temperature; // kJ/mol/K
   double cutoff_sq = cutoff*cutoff;
   double cutoff_6 = cutoff_sq*cutoff_sq*cutoff_sq;
   double inv_cutoff_6 = 1.0/cutoff_6;
@@ -273,7 +280,7 @@ void energy_grid(std::string &structure_file, std::string &forcefield_path, doub
         double inv_distance_12 = inv_distance_6 * inv_distance_6;
         ref += energy_lj(epsilon,sigma_6,inv_distance_6,inv_cutoff_6,inv_distance_12,inv_cutoff_12, R);
       }
-      else {ref = 1e3;}
+      else {ref = MAX_ENERGY;}
     }, false);
     gemmi::Element el(element_host_str.c_str());
     molar_mass += el.weight();
@@ -328,6 +335,7 @@ void energy_grid(std::string &structure_file, std::string &forcefield_path, doub
             double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
             double inv_distance_12 = inv_distance_6 * inv_distance_6;
             energy += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12, R);
+            if (energy>MAX_ENERGY) {break;}
           }
         }
         // symmetry
@@ -343,7 +351,9 @@ void energy_grid(std::string &structure_file, std::string &forcefield_path, doub
           grid.data[mate_idx] = energy;
           visited[mate_idx] = true;
         }
-        double exp_energy = exp(-energy/(R*temperature));
+        double exp_energy;
+        if (energy>MAX_ENERGY) {exp_energy=0;}
+        else {exp_energy = exp(-energy/(R*temperature));}
         sum_exp_energy += sym_count * exp_energy;
         boltzmann_energy_lj += sym_count * exp_energy * energy;
       }

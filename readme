@@ -1,8 +1,20 @@
+# How to use it
 
 c++ -std=c++11 -I./include -O3 src/grid.cpp -o a.out
 ./a.out structure/KAXQIL_clean_14.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 40
 
 Widom value of enthalpy : -44.6297 kJ/mol
 
+# Benchmark
+c++ -std=c++11 -I./include -O3 src/batch_grid.cpp -o batch_grid.out
+
+./batch_grid.out structure/KAXQIL_clean_14.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 20 0.8
+KAXQIL_clean_14,-44.626,0.0300725,0.180514
+./batch_grid.out structure/IFY.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 20 0.8
+IFY,-42.9606,0.0278469,0.21235
+./batch_grid.out structure/PSI.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 20 0.8
+PSI,-46.4294,0.0730242,0.486823
+./batch_grid.out structure/AEI.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 20 0.8
+AEI,-36.2915,0.0106267,0.243007
 # Acknowledgement
 https://github.com/seung-lab/connected-components-3d

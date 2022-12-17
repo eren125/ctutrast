@@ -4,6 +4,7 @@
 #include <gemmi/grid.hpp>
 
 #include <chrono>
+#define MAX_EXP 1e3 // exp(-1000) = 0
 
 double energy_lj(double &epsilon, double &sigma_6, double &inv_distance_6, double &inv_cutoff_6, double &inv_distance_12, double &inv_cutoff_12, double const R) {
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
@@ -46,6 +47,7 @@ int main(int argc, char* argv[]) {
   // key constants
   double const R = 8.31446261815324e-3; // kJ/mol/K
   double const N_A = 6.02214076e23;    // part/mol
+  double const MAX_ENERGY = MAX_EXP*R*temperature; // kJ/mol/K
 
   // Inialize key variables
   double molar_mass = 0;
@@ -177,6 +179,7 @@ int main(int argc, char* argv[]) {
             double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
             double inv_distance_12 = inv_distance_6 * inv_distance_6;
             energy += energy_lj(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12, R);
+            if (energy>MAX_ENERGY) {break;}
           }
         }
         grid.data[idx] = energy;
@@ -191,7 +194,9 @@ int main(int argc, char* argv[]) {
           grid.data[mate_idx] = energy;
           visited[mate_idx] = true;
         }
-        double exp_energy = exp(-energy/(R*temperature));
+        double exp_energy;
+        if (energy>MAX_ENERGY) {exp_energy=0;}
+        else {exp_energy = exp(-energy/(R*temperature));}
         sum_exp_energy += sym_count * exp_energy;
         boltzmann_energy_lj += sym_count * exp_energy * energy;
       }
