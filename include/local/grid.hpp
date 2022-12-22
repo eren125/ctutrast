@@ -90,10 +90,10 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
   double inv_cutoff_6 = 1.0/cutoff_6;
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   // Read Forcefield Infos
-  LennardJones::Parameters ff_params;
+  ForceField::Parameters ff_params;
   if (forcefield_path != "DEFAULT_UFF") {ff_params.read_lj_from_raspa(forcefield_path);}
-  double epsilon_guest, sigma_guest;
-  tie(epsilon_guest,sigma_guest) = ff_params.get_epsilon_sigma(element_guest_str, true);
+  // double sigma_guest = ff_params.get_sigma(element_guest_str, true);
+  vector<vector<double>> FF_parameters = ff_params.generate_cross_parameters(element_guest_str);
   // Grid infrastructure
   vector<gemmi::SmallStructure::Site> all_sites;
   initialize_grid(grid, all_sites, structure_file, approx_spacing);
@@ -103,9 +103,9 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
   double b_y = grid.unit_cell.orth.mat[1][1], c_y = grid.unit_cell.orth.mat[1][2];
   double c_z = grid.unit_cell.orth.mat[2][2];
   // Minimal rectangular box that could interact with atoms within the smaller equivalent rectangluar box
-  int n_max = int(std::abs((cutoff + sigma_guest) / a_x)) + 1;
-  int m_max = int(std::abs((cutoff + sigma_guest) / b_y)) + 1;
-  int l_max = int(std::abs((cutoff + sigma_guest) / c_z)) + 1;
+  int n_max = int(std::abs((cutoff) / a_x)) + 1;
+  int m_max = int(std::abs((cutoff) / b_y)) + 1;
+  int l_max = int(std::abs((cutoff) / c_z)) + 1;
   // center position used to reduce the neighbor list
   gemmi::Position center_pos = gemmi::Position(a_x/2,b_y/2,c_z/2);
   double large_cutoff = cutoff + center_pos.length();
@@ -113,21 +113,15 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
   double approx_block_size = 3; // angstrom
   // set_batch_cells(approx_block_size, grid);
   // Creates a list of sites within the cutoff
-  std::vector<std::array<double,6>> supracell_sites;
-  std::string element_host_str_temp = "X";
-  double epsilon = 0, sigma = 0;
+  std::vector<std::array<double,4>> supracell_sites;
   for (auto site: all_sites) {
     std::string element_host_str = site.type_symbol;
-    if (element_host_str != element_host_str_temp) {
-      double epsilon_host, sigma_host;
-      tie(epsilon_host,sigma_host) = ff_params.get_epsilon_sigma(element_host_str, false);
-      // Lorentz-Berthelot
-      epsilon = sqrt( epsilon_host * epsilon_guest );
-      sigma = 0.5 * ( sigma_host + sigma_guest );
-    }
-    element_host_str_temp = element_host_str;
-    double sigma_sq = sigma * sigma;
-    double sigma_6 = sigma_sq * sigma_sq * sigma_sq;
+    gemmi::Element el_host(element_host_str.c_str());
+    int atomic_number = el_host.ordinal();
+    molar_mass += el_host.weight();
+    double epsilon = FF_parameters[atomic_number][0];
+    double sigma = FF_parameters[atomic_number][1];
+    double sigma_6 = FF_parameters[atomic_number][3];
     // Remove blocked points
     grid.use_points_around<true>(site.fract, access_coeff*sigma, [&](double& ref, double d2){
       if (calc_block){
@@ -137,8 +131,6 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
       }
       else {ref = MAX_ENERGY;}
     }, false);
-    gemmi::Element el(element_host_str.c_str());
-    molar_mass += el.weight();
     // neighbor list within rectangular box
     move_rect_box(site.fract,a_x,b_x,c_x,b_y,c_y);
     gemmi::Fractional coord;
@@ -146,7 +138,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
       for (int m = -m_max; (m<m_max+1); ++m) 
         for (int l = -l_max; (l<l_max+1); ++l) {
           // calculate a distance from centre box
-          std::array<double,6> pos_epsilon_sigma;
+          std::array<double,4> pos_epsilon_sigma;
           coord.x = site.fract.x + n; coord.y = site.fract.y + m; coord.z = site.fract.z + l;
           gemmi::Position pos = gemmi::Position(grid.unit_cell.orthogonalize(coord));
           double delta_x = abs(center_pos.x-pos.x);
@@ -160,9 +152,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
           pos_epsilon_sigma[0] = pos.x;
           pos_epsilon_sigma[1] = pos.y;
           pos_epsilon_sigma[2] = pos.z;
-          pos_epsilon_sigma[3] = epsilon;
-          pos_epsilon_sigma[4] = sigma_sq;
-          pos_epsilon_sigma[5] = sigma_6;
+          pos_epsilon_sigma[3] = atomic_number;
           supracell_sites.push_back(pos_epsilon_sigma);
         }
   }
@@ -179,14 +169,14 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
         gemmi::Position pos = gemmi::Position(grid.unit_cell.orthogonalize(V_fract));
         double energy = 0; bool skip = false;
-        for(std::array<double,6> pos_epsilon_sigma : supracell_sites) {
+        for(std::array<double,4> pos_epsilon_sigma : supracell_sites) {
           double energy_temp = 0;
           gemmi::Vec3 pos_neigh = gemmi::Vec3(pos_epsilon_sigma[0], pos_epsilon_sigma[1], pos_epsilon_sigma[2]);
           double distance_sq = pos.dist_sq(pos_neigh);
           if (distance_sq < cutoff_sq) {
-            double sigma_sq = pos_epsilon_sigma[4];
-            epsilon = pos_epsilon_sigma[3];
-            double sigma_6 = pos_epsilon_sigma[5];
+            int atomic_number = pos_epsilon_sigma[3];
+            double epsilon = FF_parameters[atomic_number][0];
+            double sigma_6 = FF_parameters[atomic_number][3];
             double inv_distance_6 = 1.0 / ( distance_sq * distance_sq * distance_sq );
             double inv_distance_12 = inv_distance_6 * inv_distance_6;
             energy += energy_lj_opt(epsilon, sigma_6, inv_distance_6,inv_cutoff_6, inv_distance_12, inv_cutoff_12);

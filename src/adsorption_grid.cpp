@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
   double sum_exp_energy = 0;
 
   // Read Forcefield Infos
-  LennardJones::Parameters ff_params;
+  ForceField::Parameters ff_params;
   if (forcefield_path != "DEFAULT") {
     ff_params.read_lj_from_raspa(forcefield_path);
   }

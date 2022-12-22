@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
   if (argv[7]) {energy_threshold = stod(argv[7]);}
 
   // Read Forcefield Infos
-  LennardJones::Parameters ff_params;
+  ForceField::Parameters ff_params;
   if (forcefield_path != "DEFAULT") {
     ff_params.read_lj_from_raspa(forcefield_path);
   }
