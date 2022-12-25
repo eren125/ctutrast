@@ -109,6 +109,7 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
   // center position used to reduce the neighbor list
   gemmi::Position center_pos = gemmi::Position(a_x/2,b_y/2,c_z/2);
   double large_cutoff = cutoff + center_pos.length();
+  double large_cutoff_sq = large_cutoff*large_cutoff;
   // Batch_size
   double approx_block_size = 3; // angstrom
   // set_batch_cells(approx_block_size, grid);
@@ -131,18 +132,16 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
       }
       else {ref = MAX_ENERGY;}
     }, false);
-    // neighbor list within rectangular box
     move_rect_box(site.fract,a_x,b_x,c_x,b_y,c_y);
     gemmi::Fractional coord;
-    for (int n = -n_max; (n<n_max+1); ++n)
-      for (int m = -m_max; (m<m_max+1); ++m) 
+    for (int n = -n_max; (n<n_max+1); ++n) {
+      for (int m = -m_max; (m<m_max+1); ++m) {
         for (int l = -l_max; (l<l_max+1); ++l) {
-          // calculate a distance from centre box
           std::array<double,4> pos_epsilon_sigma;
           coord.x = site.fract.x + n; coord.y = site.fract.y + m; coord.z = site.fract.z + l;
           gemmi::Position pos = gemmi::Position(grid.unit_cell.orthogonalize(coord));
           double distance_sq = pos.dist_sq(center_pos); 
-          if (distance_sq <= large_cutoff*large_cutoff) {
+          if (distance_sq <= large_cutoff_sq) {
             pos_epsilon_sigma[0] = pos.x;
             pos_epsilon_sigma[1] = pos.y;
             pos_epsilon_sigma[2] = pos.z;
@@ -150,8 +149,9 @@ void energy_grid_opt(std::string &structure_file, std::string &forcefield_path, 
             supracell_sites.push_back(pos_epsilon_sigma);
           }
         }
+      }
+    }
   }
-  // std::cout << supracell_sites.size() << std::endl;
 
   std::vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
   vector<bool> visited(sample_size, false); 
