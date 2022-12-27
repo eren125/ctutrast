@@ -55,15 +55,17 @@ int main(int argc, char* argv[]) {
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N_label; label++) { 
     if (channel_dimensions[label]!="\0") {
-      // std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
+      std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
       channels.push_back(label+1);
     }
   }
-  // std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
+  std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
-  // print_unique_labels(channel_unique_labels);
+  print_unique_labels(channel_unique_labels);
+
+  // TODO condition on first connexion rather than on number of clusters
 
   // Loop over the different energy levels
   double energy_step = R*temperature;
@@ -75,6 +77,7 @@ int main(int argc, char* argv[]) {
     double min_energy = energy_threshold; 
     vector<bool> in_channel(V, true); 
     setup_channel_config(in_channel, channel_labels, label, V, grid.data, min_energy);
+    std::cout << min_energy << std::endl;
     
     double energy_threshold_temp = min_energy + 0.01;
     size_t max_steps = floor((energy_threshold-energy_threshold_temp)/energy_step);
@@ -90,7 +93,7 @@ int main(int argc, char* argv[]) {
       if (N_current == 1){
         // implement a way to calc channel dim and compare it to the initial one
         vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {break;}
+        if (!channel_dimensions_temp[0].empty()) {std::cout << step * energy_step << std::endl; break;}
       }
       N_past = N_current;
     }
@@ -99,9 +102,13 @@ int main(int argc, char* argv[]) {
   }
 
   delete [] channel_labels;
+  std::string structure_name = trim(structure_file);
+  double Framework_density = molar_mass/(N_A*grid.unit_cell.volume*1e-30); // g/m3
+  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
+  double henry_surface = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
   double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
   for (auto energy: energy_barriers){
-    std::cout << energy << "," << elapsed_time_ms*0.001 << std::endl;
+    std::cout << structure_name << "," << enthalpy_surface << "," << henry_surface << "," << energy << "," << elapsed_time_ms*0.001 << std::endl;
   }
 }
