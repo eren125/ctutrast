@@ -3,14 +3,12 @@
 #include <chrono>      // timer
 
 #include <local/clustering.hpp>
-
 #include <local/gridcalc.hpp>
 
 // TODO Use Border peeling to find Transition States
-using namespace std;
 int main(int argc, char* argv[]) {
-  chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
-  string grid_file = argv[1];
+  std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
+  std::string grid_file = argv[1];
   double temperature = stod(argv[2]);
   double energy_threshold = stod(argv[3]); //kJ/mol
   double const R = 8.31446261815324e-3; // kJ/mol/K
@@ -27,15 +25,15 @@ int main(int argc, char* argv[]) {
 
   // Array of the type of channel connectivity in X Y Z but not the dimensionality (BFS to do so)
   // Used to filter out pockets no 
-  vector<string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, grid.nu, grid.nv, grid.nw);
+  vector<std::string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, grid.nu, grid.nv, grid.nw);
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N; label++) { 
     if (channel_dimensions[label]!="\0") {
-      cout << label + 1 << " " << channel_dimensions[label] << endl;
+      std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
       channels.push_back(label+1);
     }
   }
-  cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+  std::cout << channels.size() << " channels out of " << N << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
@@ -62,11 +60,11 @@ int main(int argc, char* argv[]) {
       N_current = 0;
       bool merged = false;
       bfsOfGraph(&bassin_labels_current, in_channel, grid, energy_threshold_temp, V, N_current);
-      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
+      std::cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
       // if N_current changes save it 
       if (N_current == 1){
-        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
+        vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
+        if (!channel_dimensions_temp[0].empty()) {std::cout << "MERGED " << std::endl;break;}
       }
       if (step == 0) {
         // Setup the bassin positions  & probability
@@ -74,10 +72,10 @@ int main(int argc, char* argv[]) {
       }
       else {
         check_merge(bassin_labels_current, bassin_labels_past, N_current, N_past, merged, V);
-        if (merged) {cout << "MERGED ";}
-        else if (N_current != N_past) {cout << "CHANGED " ;}
+        if (merged) {std::cout << "MERGED ";}
+        else if (N_current != N_past) {std::cout << "CHANGED " ;}
       }
-      cout << endl;
+      std::cout << std::endl;
       N_past = N_current;
       bassin_labels_past = dup<uint8_t>(bassin_labels_current,V); 
     }
@@ -91,12 +89,12 @@ int main(int argc, char* argv[]) {
   // (and traversed a PBC save the direction in which it did)
   // Calc the determinent of this matrix to get dimensionality of the channel
 
-  // chrono::high_resolution_clock::time_point t_a = chrono::high_resolution_clock::now();
-  // double time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
-  // t_a = chrono::high_resolution_clock::now();
-  // time = chrono::duration<double, milli>(t_a-t_start).count();
-  // cout << time << endl;
+  // std::chrono::high_resolution_clock::time_point t_a = std::chrono::high_resolution_clock::now();
+  // double time = std::chrono::duration<double, milli>(t_a-t_start).count();
+  // std::cout << time << std::endl;
+  // t_a = std::chrono::high_resolution_clock::now();
+  // time = std::chrono::duration<double, milli>(t_a-t_start).count();
+  // std::cout << time << std::endl;
 
   // TODO we can find the bassin of each channel > min value and check if it is a symmetric image of 
   // another channels
@@ -107,9 +105,9 @@ int main(int argc, char* argv[]) {
 
   delete [] channel_labels;
   // Calculate diffusion coefficients
-  chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
-  double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-  cout << elapsed_time_ms*0.001 << endl;
+  std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
+  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  std::cout << elapsed_time_ms*0.001 << std::endl;
 
   // // Check the labels
   // for (size_t i=0; i<array_size; i++) {

@@ -2,11 +2,10 @@
 #include <string>
 #include <chrono>      // timer
 
+#include <local/gridcalc.hpp>
 #include <local/clustering.hpp>
 
-#include <local/gridcalc.hpp>
 
-using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
   string grid_file = argv[1];

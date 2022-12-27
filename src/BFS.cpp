@@ -2,14 +2,13 @@
 #include <string>
 #include <chrono>      // timer
 
+#include <local/gridcalc.hpp>
 #include <local/clustering.hpp>
 
-#include <local/gridcalc.hpp>
 
-using namespace std;
 int main(int argc, char* argv[]) {
-  chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
-  string grid_file = argv[1];
+  std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
+  std::string grid_file = argv[1];
   double temperature = stod(argv[2]);
   double energy_threshold = stod(argv[3]); //kJ/mol
   double const R = 8.31446261815324e-3; // kJ/mol/K
@@ -26,7 +25,7 @@ int main(int argc, char* argv[]) {
 
   // Array of the type of channel connectivity in X Y Z but not the dimensionality (BFS to do so)
   // Used to filter out pockets no 
-  vector<string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, grid.nu, grid.nv, grid.nw);
+  vector<std::string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, grid.nu, grid.nv, grid.nw);
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N; label++) { 
     if (channel_dimensions[label]!="\0") {
@@ -64,7 +63,7 @@ int main(int argc, char* argv[]) {
       cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
       // if N_current changes save it 
       if (N_current == 1){
-        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
+        vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
         if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
       }
       if (step == 0) {
@@ -85,7 +84,7 @@ int main(int argc, char* argv[]) {
   }
   
   delete [] channel_labels;
-  chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
-  double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
-  cout << elapsed_time_ms*0.001 << endl;
+  std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
+  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  std::cout << elapsed_time_ms*0.001 << std::endl;
 }

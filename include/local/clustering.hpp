@@ -5,7 +5,7 @@
 #include <vector>
 #include <queue>
 
-using namespace std;
+using std::vector;
 
 template <typename T = uint8_t>
 T * dup(T const * src, size_t len)
@@ -16,7 +16,7 @@ T * dup(T const * src, size_t len)
 }
 
 template <typename T = uint32_t >
-tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
+std::tuple<T,T,T> index_to_point(T &idx, T &nu, T &nv, T &nw){
   auto d1 = std::div((ptrdiff_t)idx, (ptrdiff_t)nu);
   auto d2 = std::div(d1.quot, (ptrdiff_t)nv);
   T u = (T) d1.rem;
@@ -36,7 +36,7 @@ void setup_channel_config(vector<bool> &in_channel, uint8_t* channel_labels, uin
 }
 
 template <typename T = uint32_t>
-void neighbor_search_6(queue< tuple<T,T,T,T> > &q, vector<bool> &vis, T &nu, T &nv, T &nw, T &nuv, T &u_node, T &v_node, T &w_node, T &idx_node, const double &energy_threshold, const gemmi::Grid<double> &grid){
+void neighbor_search_6(std::queue< std::tuple<T,T,T,T> > &q, vector<bool> &vis, T &nu, T &nv, T &nw, T &nuv, T &u_node, T &v_node, T &w_node, T &idx_node, const double &energy_threshold, const gemmi::Grid<double> &grid){
 // Checks the 6 neighbor voxels linked by the face and queue them if they are not visited and have the good amount of energy
   T temp=0;
   T idx_temp = idx_node;
@@ -89,13 +89,13 @@ void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, const gemmi::Grid<doubl
     if (!vis[idx]) {
       vis[idx] = true;
       if (grid.data[idx]<energy_threshold){
-        queue< tuple<T,T,T,T> > q;
+        std::queue< std::tuple<T,T,T,T> > q;
         q.push({u, v, w,idx});
         N = N+1;
         OUT cluster_num = (OUT) N;
         while (!q.empty()) {
           T u_node, v_node, w_node, idx_node;
-          tie(u_node, v_node, w_node,idx_node) = q.front();
+          std::tie(u_node, v_node, w_node,idx_node) = q.front();
           q.pop();
           (*cluster_labels)[idx_node] = cluster_num;
           neighbor_search_6<T>(q, vis, nu, nv, nw, nuv, u_node, v_node, w_node, idx_node, energy_threshold, grid);
@@ -106,8 +106,8 @@ void bfsOfGraph(OUT *cluster_labels[], vector<bool> vis, const gemmi::Grid<doubl
 }
 
 template <typename T = uint8_t >
-vector<string> channel_dim_array(T* cc_labels, size_t N_label, int &nu, int &nv, int &nw) {
-  vector<string> channel_dimensions(N_label);
+vector<std::string> channel_dim_array(T* cc_labels, size_t N_label, int &nu, int &nv, int &nw) {
+  vector<std::string> channel_dimensions(N_label);
   vector< vector<bool> > present_X_2d(N_label, vector<bool>(nu,0));
   vector< vector<bool> > present_Y_2d(N_label, vector<bool>(nv,0));
   vector< vector<bool> > present_Z_2d(N_label, vector<bool>(nw,0));
@@ -156,7 +156,7 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
             equiv_label.push_back(label);
             labels.push_back(label);count_++;
             for (size_t k = 0; k < grid_ops.size(); ++k) {
-              array<int,3> t = grid_ops[k].apply(u, v, w);
+              std::array<int,3> t = grid_ops[k].apply(u, v, w);
               size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
               T mate_label = cc_labels[mate_idx];
               it = find (equiv_label.begin(), equiv_label.end(), mate_label);
@@ -169,21 +169,21 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
           }
         }
         if (count_ == channels.size()) {break;}
-        else if (count_ > channels.size()) {cout << "ERROR in unique channel determination" << endl;}
+        else if (count_ > channels.size()) {std::cout << "ERROR in unique channel determination" << std::endl;}
   }
   return unique_labels;
 }
 
 template <typename T = uint8_t >
 void print_unique_labels(vector < vector<T> > &unique_labels){
-  cout << "Equivalent channels" << endl;
+  std::cout << "Equivalent channels" << std::endl;
   int count_ = 0;
   for (vector<T> equiv_labels: unique_labels){
     for (T label: equiv_labels){
       std::cout << (size_t) label << " ";
     }
     count_++;
-    std::cout << endl;
+    std::cout << std::endl;
   }
 }
 
