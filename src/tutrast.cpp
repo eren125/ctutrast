@@ -6,6 +6,7 @@
 
 #include <local/gridcalc.hpp>
 
+// TODO Use Border peeling to find Transition States
 using namespace std;
 int main(int argc, char* argv[]) {
   chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
