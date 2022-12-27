@@ -46,7 +46,7 @@ fig = go.Figure(data=go.Volume(
     z=Z.flatten(),
     value=np.array(values),
     isomin=np.min(arr),
-    isomax=0,
+    isomax=-20,
     opacity=0.1, # needs to be small to see through all surfaces
     surface_count=17, # needs to be a large number for good volume rendering
     colorscale='rdylbu',reversescale=False # Choose color
