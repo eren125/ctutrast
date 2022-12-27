@@ -7,33 +7,59 @@
 
 
 int main(int argc, char* argv[]) {
-  chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
-  string grid_file = argv[1];
-  double temperature = stod(argv[2]);
-  double energy_threshold = stod(argv[3]); //kJ/mol
-  double const R = 8.31446261815324e-3; // kJ/mol/K
+  std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
+  std::string structure_file = argv[1];
+  std::string forcefield_path = argv[2];
+  double temperature = stod(argv[3]);
+  double cutoff = stod(argv[4]);
+  double cutoff_sq = cutoff*cutoff;
+  double cutoff_6 = (cutoff_sq)*(cutoff_sq)*(cutoff_sq);
+  double inv_cutoff_6 = 1.0/cutoff_6;
+  double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
+  std::string element_guest_str = argv[5];
+  double approx_spacing = stod(argv[6]);
+  double energy_threshold = 40;
+  if (argv[7]) {energy_threshold = stod(argv[7]);}
+  double access_coeff = 0.8;
+  if (argv[8]) {access_coeff = stod(argv[8]);}
 
+  // Error catch
+  if ( temperature < 0 ) {throw std::invalid_argument( "Received negative value for the Temperature" );}
+  if ( energy_threshold < 0 ) {throw std::invalid_argument( "Received negative value for the Energy Threshold" );}
+  if ( access_coeff > 1 || access_coeff < 0 ) {throw std::invalid_argument( "Accessibility Coefficient out of range (Read the purpose of this coeff)" );}
+
+  // key constants
+  double const R = 8.31446261815324e-3; // kJ/mol/K
+  double const N_A = 6.02214076e23;    // part/mol
+
+  // Input
+  double molar_mass = 0;
+  double boltzmann_energy_lj = 0;
+  double sum_exp_energy = 0;
   gemmi::Grid<double> grid;
-  // READ MAP that took about 870 ms to make for AEI
-  read_grid_ccp4(grid, grid_file);
-  const size_t V = grid.nu*grid.nv*grid.nw;
+
+  // read_grid_ccp4(grid, grid_file);
+
+  make_energy_grid_ads(structure_file,forcefield_path,temperature,cutoff,element_guest_str,approx_spacing,energy_threshold,access_coeff, 
+  molar_mass, boltzmann_energy_lj, sum_exp_energy, grid, true);
+  const size_t V = grid.data.size();
   
   // //Breadth first search to get the connected components
+  size_t N_label = 0;
   uint8_t* channel_labels = new uint8_t[V]();
-  size_t N = 0;
-  bfsOfGraph(&channel_labels, vector<bool>(V, false), grid, energy_threshold, V, N);
+  bfsOfGraph(&channel_labels, vector<bool>(V, false), grid, energy_threshold, V, N_label);
 
   // Array of the type of channel connectivity in X Y Z but not the dimensionality (BFS to do so)
   // Used to filter out pockets no 
-  vector<string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N, grid.nu, grid.nv, grid.nw);
+  vector<std::string> channel_dimensions=channel_dim_array<uint8_t>(channel_labels, N_label, grid.nu, grid.nv, grid.nw);
   vector<uint8_t> channels;
-  for (uint8_t label=0; label!=N; label++) { 
+  for (uint8_t label=0; label!=N_label; label++) { 
     if (channel_dimensions[label]!="\0") {
-      // cout << label + 1 << " " << channel_dimensions[label] << endl;
+      // std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
       channels.push_back(label+1);
     }
   }
-  // cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+  // std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
@@ -63,7 +89,7 @@ int main(int argc, char* argv[]) {
       bfsOfGraph(&bassin_labels_current, in_channel, grid, energy_threshold_temp, V, N_current);
       if (N_current == 1){
         // implement a way to calc channel dim and compare it to the initial one
-        vector<string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
+        vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
         if (!channel_dimensions_temp[0].empty()) {break;}
       }
       N_past = N_current;
@@ -73,9 +99,9 @@ int main(int argc, char* argv[]) {
   }
 
   delete [] channel_labels;
-  chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
-  double elapsed_time_ms = chrono::duration<double, milli>(t_end-t_start).count();
+  std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
+  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
   for (auto energy: energy_barriers){
-    cout << energy << "," << elapsed_time_ms*0.001 << endl;
+    std::cout << energy << "," << elapsed_time_ms*0.001 << std::endl;
   }
 }

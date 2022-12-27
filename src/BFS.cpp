@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
   gemmi::Grid<double> grid;
   // READ MAP that took about 870 ms to make for AEI
   read_grid_ccp4(grid, grid_file);
-  const size_t V = grid.nu*grid.nv*grid.nw;
+  const size_t V = grid.data.size();
   
   // //Breadth first search to get the connected components
   uint8_t* channel_labels = new uint8_t[V]();
