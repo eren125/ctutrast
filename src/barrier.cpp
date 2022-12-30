@@ -55,11 +55,11 @@ int main(int argc, char* argv[]) {
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N_label; label++) { 
     if (channel_dimensions[label]!="\0") {
-      std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
+      // std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
       channels.push_back(label+1);
     }
   }
-  std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
+  // std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
     double min_energy = energy_threshold; 
     vector<bool> in_channel(V, true); 
     setup_channel_config(in_channel, channel_labels, label, V, grid.data, min_energy);
-    std::cout << min_energy << std::endl;
+    // std::cout << min_energy << std::endl;
     
     double energy_threshold_temp = min_energy + 0.01;
     size_t max_steps = floor((energy_threshold-energy_threshold_temp)/energy_step);
@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
       if (N_current == 1){
         // implement a way to calc channel dim and compare it to the initial one
         vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {std::cout << step * energy_step << std::endl; break;}
+        if (!channel_dimensions_temp[0].empty()) {break;}
       }
       N_past = N_current;
     }
