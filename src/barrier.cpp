@@ -65,15 +65,12 @@ int main(int argc, char* argv[]) {
   vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
   print_unique_labels(channel_unique_labels);
 
-  // TODO condition on first connexion rather than on number of clusters
-
   // Loop over the different energy levels
   double energy_step = R*temperature;
   // double energy_step = 1; // kJ/mol
   vector <double> energy_barriers;
   for (auto labels: channel_unique_labels){
     auto label = labels[0];
-
     double min_energy = energy_threshold; 
     vector<bool> in_channel(V, true); 
     setup_channel_config(in_channel, channel_labels, label, V, grid.data, min_energy);
@@ -104,11 +101,11 @@ int main(int argc, char* argv[]) {
   delete [] channel_labels;
   std::string structure_name = trim(structure_file);
   double Framework_density = molar_mass/(N_A*grid.unit_cell.volume*1e-30); // g/m3
-  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-  double henry_surface = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
+  double enthalpy = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
+  double henry = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
   double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
   for (auto energy: energy_barriers){
-    std::cout << structure_name << "," << enthalpy_surface << "," << henry_surface << "," << energy << "," << elapsed_time_ms*0.001 << std::endl;
+    std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy << "," << elapsed_time_ms*0.001 << std::endl;
   }
 }

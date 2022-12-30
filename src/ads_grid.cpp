@@ -42,10 +42,10 @@ int main(int argc, char* argv[]) {
 
   std::string structure_name = trim(structure_file);
   double Framework_density = molar_mass/(N_A*grid.unit_cell.volume*1e-30); // g/m3
-  double enthalpy_surface = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-  double henry_surface = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
+  double enthalpy = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
+  double henry = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
   auto t_end = std::chrono::high_resolution_clock::now();
   double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
   // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
-  cout << structure_name << "," << enthalpy_surface << "," << henry_surface << "," << elapsed_time_ms*0.001 << endl;
+  cout << structure_name << "," << enthalpy << "," << henry << "," << elapsed_time_ms*0.001 << endl;
 }
