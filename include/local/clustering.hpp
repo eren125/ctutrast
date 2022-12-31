@@ -176,14 +176,14 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
 
 template <typename T = uint8_t >
 void print_unique_labels(vector < vector<T> > &unique_labels){
-  std::cout << "Equivalent channels" << std::endl;
+  // std::cout << "Equivalent channels" << std::endl;
   int count_ = 0;
   for (vector<T> equiv_labels: unique_labels){
     for (T label: equiv_labels){
-      std::cout << (size_t) label << " ";
+      // std::cout << (size_t) label << " ";
     }
     count_++;
-    std::cout << std::endl;
+    // std::cout << std::endl;
   }
 }
 

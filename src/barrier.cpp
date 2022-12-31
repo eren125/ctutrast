@@ -68,7 +68,7 @@ int main(int argc, char* argv[]) {
   // Loop over the different energy levels
   double energy_step = R*temperature;
   // double energy_step = 1; // kJ/mol
-  vector <double> energy_barriers;
+  vector<std::pair<double,double>> energy_barriers;
   for (auto labels: channel_unique_labels){
     auto label = labels[0];
     double min_energy = energy_threshold; 
@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
       N_past = N_current;
     }
     delete [] bassin_labels_current;
-    energy_barriers.push_back(energy_threshold_temp-min_energy);
+    energy_barriers.push_back(std::make_pair(min_energy, energy_threshold_temp));
   }
 
   delete [] channel_labels;
@@ -106,6 +106,6 @@ int main(int argc, char* argv[]) {
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
   double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
   for (auto energy: energy_barriers){
-    std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy << "," << elapsed_time_ms*0.001 << std::endl;
+    std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy.first << "," << energy.second << "," << elapsed_time_ms*0.001 << std::endl;
   }
 }
