@@ -6,15 +6,16 @@ c++ -std=c++11 -I./include -O3 src/grid.cpp -o a.out
 Widom value of enthalpy : -44.6297 kJ/mol
 
 # Benchmark
-c++ -std=c++11 -I./include -O3 src/batch_grid.cpp -o batch_grid.out
+c++ -std=c++11 -I./include -O3 src/ads_grid.cpp -o ads_grid.out
 
-./batch_grid.out structure/KAXQIL_clean_14.cif forcefield/UFF.def 298.0 12.0 Xe 0.1 20 0.8
-KAXQIL_clean_14,-44.626,0.0300725,0.255743
-./batch_grid.out structure/IFY.cif forcefield/UFF.def 298.0 12.0 Xe 0.1 20 0.8
-IFY,-42.9606,0.0278469,0.312447
-./batch_grid.out structure/PSI.cif forcefield/UFF.def 298.0 12.0 Xe 0.1 20 0.8
-PSI,-46.4294,0.0730242,0.735804
-./batch_grid.out structure/AEI.cif forcefield/UFF.def 298.0 12.0 Xe 0.1 20 0.8
-AEI,-36.2915,0.0106267,0.424678
+./ads_grid.out structure/KAXQIL_clean_14.cif forcefield/UFF.def 298.0 12.0 Xe 0.12 20 0.8
+KAXQIL_clean_14,-44.626,0.0300725,0.190666
+./ads_grid.out structure/IFY.cif forcefield/zeolite_ff.def 298.0 12.0 Xe 0.12 20 0.8
+IFY,-26.1962,6.81103e-05,0.205935
+./ads_grid.out structure/AEI.cif forcefield/zeolite_ff.def 298.0 12.0 Xe 0.12 20 0.8
+AEI,-22.2866,5.06784e-05,0.227736
+./ads_grid.out structure/IFY.cif forcefield/zeolite_ff.def 298.0 12.0 Xe 0.12 20 0.8
+IFY,-26.1962,6.81103e-05,0.216043
+
 # Acknowledgement
 https://github.com/seung-lab/connected-components-3d

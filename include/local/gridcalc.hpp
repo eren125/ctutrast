@@ -86,6 +86,7 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
   double const R = 8.31446261815324e-3; // kJ/mol/K
   double const MAX_ENERGY = MAX_EXP*R*temperature;
   double const MAX_ENERGY_opt = MAX_EXP*temperature/4; 
+  double const beta = 1/(R*temperature);
   double cutoff_sq = cutoff*cutoff;
   double cutoff_6 = cutoff_sq*cutoff_sq*cutoff_sq;
   double inv_cutoff_6 = 1.0/cutoff_6;
@@ -193,7 +194,7 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
           }
         }
         if (skip==false) {
-          double exp_energy = sym_count * exp(-4*energy/(temperature));  
+          double exp_energy = sym_count * exp(-grid.data[idx]*(beta));  
           sum_exp_energy += exp_energy;
           boltzmann_energy_lj += exp_energy * grid.data[idx];
         }

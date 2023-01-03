@@ -78,11 +78,11 @@ int main(int argc, char* argv[]) {
     
     double energy_threshold_temp = min_energy + 0.01;
     size_t max_steps = floor((energy_threshold-energy_threshold_temp)/energy_step);
-    size_t N_current; size_t N_past=0; 
+    size_t N_current; size_t N_past=0;
     // calc weight here later (TODO)
     uint8_t* bassin_labels_current = new uint8_t[V]();
     // TODO implement a dichotomy search
-    for (size_t step=0; step<max_steps+1; step++){ 
+    for (size_t step=0; step<max_steps+1; step++){
       energy_threshold_temp += energy_step;
       N_current = 0;
       bool merged = false;
@@ -105,7 +105,11 @@ int main(int argc, char* argv[]) {
   double henry = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
   double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
-  for (auto energy: energy_barriers){
-    std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy.first << "," << energy.second << "," << elapsed_time_ms*0.001 << std::endl;
+  if (energy_barriers.size()!=0) {
+    for (auto energy: energy_barriers){
+      // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Minimum Energy in channel (kJ/mol), Barrier Energy (kJ/mol), Time (s)
+      std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy.first << "," << energy.second << "," << elapsed_time_ms*0.001 << std::endl;
+    }
   }
+  else {std::cout << structure_name << "," << enthalpy << "," << henry << ",,," << elapsed_time_ms*0.001 << std::endl;}
 }

@@ -8,9 +8,9 @@ import os
 file_dir = os.path.dirname(__file__)
 # s = input("give the spacing of desired grid:\n")
 # t = input("give the energy thershold used in the grid calc:\n")
-forcefield = "UFF"
-s, t = "0.1","20"
-structure = "ADOGEH_clean_225"
+forcefield = "Dreiding_uff"
+s, t = "0.12","20"
+structure = "VANRAH_clean_123"
 # structure = input("Structure name:\n")
 ads = "Xe"
 grid_path = "../grid/%s_%s_%s_%s_%s.ccp4"%(structure,forcefield,s,t,ads)
@@ -46,7 +46,7 @@ fig = go.Figure(data=go.Volume(
     z=Z.flatten(),
     value=np.array(values),
     isomin=np.min(arr),
-    isomax=-20,
+    isomax=float(t),
     opacity=0.1, # needs to be small to see through all surfaces
     surface_count=17, # needs to be a large number for good volume rendering
     colorscale='rdylbu',reversescale=False # Choose color
