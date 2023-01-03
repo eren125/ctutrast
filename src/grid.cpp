@@ -2,21 +2,21 @@
 #include <chrono>
 
 int main(int argc, char* argv[]) {
-  std::chrono::high_resolution_clock::time_point t_start = chrono::high_resolution_clock::now();
+  std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
   std::string structure_file = argv[1];
   std::string forcefield_path = argv[2];
-  double temperature = stod(argv[3]);
-  double cutoff = stod(argv[4]);
+  double temperature = std::stod(argv[3]);
+  double cutoff = std::stod(argv[4]);
   double cutoff_sq = cutoff*cutoff;
   double cutoff_6 = (cutoff_sq)*(cutoff_sq)*(cutoff_sq);
   double inv_cutoff_6 = 1.0/cutoff_6;
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   std::string element_guest_str = argv[5];
-  double approx_spacing = stod(argv[6]);
+  double approx_spacing = std::stod(argv[6]);
   double energy_threshold = 40;
-  if (argv[7]) {energy_threshold = stod(argv[7]);}
+  if (argv[7]) {energy_threshold = std::stod(argv[7]);}
   double access_coeff = 0.8;
-  if (argv[8]) {access_coeff = stod(argv[8]);}
+  if (argv[8]) {access_coeff = std::stod(argv[8]);}
 
   // Error catch
   if ( temperature < 0 ) {throw std::invalid_argument( "Received negative value for the Temperature" );}
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
 
   std::string structure_name = trim(structure_file);
   auto t_end = std::chrono::high_resolution_clock::now();
-  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
   // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Accessible Surface Area (m2/cm3), Time (s)
-  cout << structure_name << "," << grid.data.size() <<  "," << elapsed_time_ms*0.001 << endl;
+  std::cout << structure_name << "," << grid.data.size() <<  "," << elapsed_time_ms*0.001 << std::endl;
 }

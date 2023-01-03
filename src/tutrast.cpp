@@ -9,8 +9,8 @@
 int main(int argc, char* argv[]) {
   std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
   std::string grid_file = argv[1];
-  double temperature = stod(argv[2]);
-  double energy_threshold = stod(argv[3]); //kJ/mol
+  double temperature = std::stod(argv[2]);
+  double energy_threshold = std::stod(argv[3]); //kJ/mol
   double const R = 8.31446261815324e-3; // kJ/mol/K
 
   gemmi::Grid<double> grid;
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
   std::cout << channels.size() << " channels out of " << N << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
-  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
+  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, std::min(0.0,energy_threshold));
   print_unique_labels(channel_unique_labels);
   // if there are several types of channels: we need to save the weight of each channel and do kMC in each (TODO)
 
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
   delete [] channel_labels;
   // Calculate diffusion coefficients
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
-  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
   std::cout << elapsed_time_ms*0.001 << std::endl;
 
   // // Check the labels

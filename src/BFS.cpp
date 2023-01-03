@@ -9,8 +9,8 @@
 int main(int argc, char* argv[]) {
   std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
   std::string grid_file = argv[1];
-  double temperature = stod(argv[2]);
-  double energy_threshold = stod(argv[3]); //kJ/mol
+  double temperature = std::stod(argv[2]);
+  double energy_threshold = std::stod(argv[3]); //kJ/mol
   double const R = 8.31446261815324e-3; // kJ/mol/K
 
   gemmi::Grid<double> grid;
@@ -29,14 +29,14 @@ int main(int argc, char* argv[]) {
   vector<uint8_t> channels;
   for (uint8_t label=0; label!=N; label++) { 
     if (channel_dimensions[label]!="\0") {
-      cout << label + 1 << " " << channel_dimensions[label] << endl;
+      std::cout << label + 1 << " " << channel_dimensions[label] << std::endl;
       channels.push_back(label+1);
     }
   }
-  cout << channels.size() << " channels out of " << N << " connected clusters" << endl;
+  std::cout << channels.size() << " channels out of " << N << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
-  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
+  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, std::min(0.0,energy_threshold));
   print_unique_labels(channel_unique_labels);
 
   // Loop over the different energy levels
@@ -60,11 +60,11 @@ int main(int argc, char* argv[]) {
       N_current = 0;
       bool merged = false;
       bfsOfGraph(&bassin_labels_current, in_channel, grid, energy_threshold_temp, V, N_current);
-      cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
+      std::cout << "Step " << (size_t)step << ": Channel " << (size_t)label << " has " << N_current << " components " << energy_threshold_temp << " " ;
       // if N_current changes save it 
       if (N_current == 1){
         vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {cout << "MERGED " << endl;break;}
+        if (!channel_dimensions_temp[0].empty()) {std::cout << "MERGED " << std::endl;break;}
       }
       if (step == 0) {
         // Setup the bassin positions & connections & probability
@@ -72,10 +72,10 @@ int main(int argc, char* argv[]) {
       }
       else {
         check_merge(bassin_labels_current, bassin_labels_past, N_current, N_past, merged, V);
-        if (merged) {cout << "MERGED ";}
-        else if (N_current != N_past) {cout << "CHANGED " ;}
+        if (merged) {std::cout << "MERGED ";}
+        else if (N_current != N_past) {std::cout << "CHANGED " ;}
       }
-      cout << endl;
+      std::cout << std::endl;
       N_past = N_current;
       bassin_labels_past = dup<uint8_t>(bassin_labels_current,V); 
     }
@@ -85,6 +85,6 @@ int main(int argc, char* argv[]) {
   
   delete [] channel_labels;
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
-  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
   std::cout << elapsed_time_ms*0.001 << std::endl;
 }

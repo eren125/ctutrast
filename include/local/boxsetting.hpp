@@ -1,10 +1,9 @@
 #include <gemmi/smcif.hpp> 
 #include <cmath>
-using namespace std;
 
 double modulo_1(double a) {
-  if (a<0) {return fmod(a,1)+1;}
-  else {return fmod(a,1);}
+  if (a<0) {return std::fmod(a,1)+1;}
+  else {return std::fmod(a,1);}
   // return a;
 }
 

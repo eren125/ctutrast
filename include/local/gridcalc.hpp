@@ -15,9 +15,9 @@ double energy_lj_opt(double &epsilon, double &sigma_6, double &inv_distance_6, d
 }
 
 std::string trim(std::string structure_file) {
-  string structure_name(structure_file);
+  std::string structure_name(structure_file);
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
-  string::size_type const p(structure_name.find_last_of('.'));
+  std::string::size_type const p(structure_name.find_last_of('.'));
   structure_name = structure_name.substr(0, p);
   return structure_name;
 }
@@ -161,7 +161,8 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         if (visited[idx]) {continue;}
-        else if (grid.data[idx] >= energy_threshold) {continue;}
+        else if (grid.data[idx] != grid.data[idx]) {visited[idx]=true; continue;} // grid point frequently overlaps with atoms which results in nan value (skip those)
+        else if (grid.data[idx] >= energy_threshold) {visited[idx]=true; continue;}
         gemmi::Fractional V_fract = grid.get_fractional(u,v,w);
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
         gemmi::Position pos = gemmi::Position(grid.unit_cell.orthogonalize(V_fract));
@@ -183,7 +184,7 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
         visited[idx] = true;
         int sym_count = 1;
         for (size_t k = 0; k < grid_ops.size(); ++k) {
-          array<int,3> t = grid_ops[k].apply(u, v, w);
+          std::array<int,3> t = grid_ops[k].apply(u, v, w);
           size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
           if (visited[mate_idx])
             continue;
@@ -194,7 +195,7 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
           }
         }
         if (skip==false) {
-          double exp_energy = sym_count * exp(-grid.data[idx]*(beta));  
+          double exp_energy = sym_count * exp(-grid.data[idx]*beta);  
           sum_exp_energy += exp_energy;
           boltzmann_energy_lj += exp_energy * grid.data[idx];
         }
@@ -305,7 +306,7 @@ void make_energy_grid(std::string &structure_file, std::string &forcefield_path,
         visited[idx] = true;
         int sym_count = 1;
         for (size_t k = 0; k < grid_ops.size(); ++k) {
-          array<int,3> t = grid_ops[k].apply(u, v, w);
+          std::array<int,3> t = grid_ops[k].apply(u, v, w);
           size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
           if (visited[mate_idx])
             continue;
@@ -318,15 +319,15 @@ void make_energy_grid(std::string &structure_file, std::string &forcefield_path,
       }
 }
 
-string generate_ccp4name(string &structure_file, string &forcefield_path, double &spacing, double &energy_threshold, string &ads_name) {
+std::string generate_ccp4name(std::string &structure_file, std::string &forcefield_path, double &spacing, double &energy_threshold, std::string &ads_name) {
   char buffer[20];  // maximum expected length of the float
-  string forcefield_name(forcefield_path);
+  std::string forcefield_name(forcefield_path);
   forcefield_name = forcefield_name.substr(forcefield_name.find_last_of("/\\") + 1);
-  string::size_type const p(forcefield_name.find_last_of('.'));
+  std::string::size_type const p(forcefield_name.find_last_of('.'));
   forcefield_name = forcefield_name.substr(0, p);
-  string structure_name(structure_file);
+  std::string structure_name(structure_file);
   structure_name = structure_name.substr(structure_name.find_last_of("/\\") + 1);
-  string::size_type const q(structure_name.find_last_of('.'));
+  std::string::size_type const q(structure_name.find_last_of('.'));
   structure_name = structure_name.substr(0, q);
   structure_name = "grid/" + structure_name + "_" + forcefield_name + "_";
   snprintf(buffer, 20, "%g", spacing);
@@ -338,16 +339,16 @@ string generate_ccp4name(string &structure_file, string &forcefield_path, double
   return structure_name;
 }
 
-void save_grid_ccp4(gemmi::Grid<double> &grid, string &structure_file, string &forcefield_path, double &approx_spacing, double &energy_threshold, string &element_guest_str) {
+void save_grid_ccp4(gemmi::Grid<double> &grid, std::string &structure_file, std::string &forcefield_path, double &approx_spacing, double &energy_threshold, std::string &element_guest_str) {
   gemmi::Ccp4<double> map;
   map.grid = grid;
   map.setup(NAN, gemmi::MapSetup::ReorderOnly);
   map.update_ccp4_header(2, true);
-  string filename = generate_ccp4name(structure_file, forcefield_path, approx_spacing, energy_threshold, element_guest_str);
+  std::string filename = generate_ccp4name(structure_file, forcefield_path, approx_spacing, energy_threshold, element_guest_str);
   map.write_ccp4_map(filename);
 }
 
-void read_grid_ccp4(gemmi::Grid<double> &grid, string &grid_file) {
+void read_grid_ccp4(gemmi::Grid<double> &grid, std::string &grid_file) {
   gemmi::Ccp4<double> map;
   // READ MAP that took about 870 ms to make for AEI
   map.read_ccp4_file(grid_file); 

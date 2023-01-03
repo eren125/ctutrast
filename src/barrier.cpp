@@ -10,18 +10,18 @@ int main(int argc, char* argv[]) {
   std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
   std::string structure_file = argv[1];
   std::string forcefield_path = argv[2];
-  double temperature = stod(argv[3]);
-  double cutoff = stod(argv[4]);
+  double temperature = std::stod(argv[3]);
+  double cutoff = std::stod(argv[4]);
   double cutoff_sq = cutoff*cutoff;
   double cutoff_6 = (cutoff_sq)*(cutoff_sq)*(cutoff_sq);
   double inv_cutoff_6 = 1.0/cutoff_6;
   double inv_cutoff_12 = inv_cutoff_6*inv_cutoff_6;
   std::string element_guest_str = argv[5];
-  double approx_spacing = stod(argv[6]);
+  double approx_spacing = std::stod(argv[6]);
   double energy_threshold = 40;
-  if (argv[7]) {energy_threshold = stod(argv[7]);}
+  if (argv[7]) {energy_threshold = std::stod(argv[7]);}
   double access_coeff = 0.8;
-  if (argv[8]) {access_coeff = stod(argv[8]);}
+  if (argv[8]) {access_coeff = std::stod(argv[8]);}
 
   // Error catch
   if ( temperature < 0 ) {throw std::invalid_argument( "Received negative value for the Temperature" );}
@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
   // std::cout << channels.size() << " channels out of " << N_label << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
-  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, min(0.0,energy_threshold));
+  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, std::min(0.0,energy_threshold));
   print_unique_labels(channel_unique_labels);
 
   // Loop over the different energy levels
@@ -102,14 +102,14 @@ int main(int argc, char* argv[]) {
   std::string structure_name = trim(structure_file);
   double Framework_density = molar_mass/(N_A*grid.unit_cell.volume*1e-30); // g/m3
   double enthalpy = boltzmann_energy_lj/sum_exp_energy - R*temperature;  // kJ/mol
-  double henry = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density);    // mol/kg/Pa
+  double henry = sum_exp_energy/(grid.data.size()*R*temperature*Framework_density); // mol/kg/Pa
   std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
-  double elapsed_time_ms = std::chrono::duration<double, milli>(t_end-t_start).count();
+  double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
   if (energy_barriers.size()!=0) {
     for (auto energy: energy_barriers){
       // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Minimum Energy in channel (kJ/mol), Barrier Energy (kJ/mol), Time (s)
       std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy.first << "," << energy.second << "," << elapsed_time_ms*0.001 << std::endl;
     }
   }
-  else {std::cout << structure_name << "," << enthalpy << "," << henry << ",,," << elapsed_time_ms*0.001 << std::endl;}
+  else {std::cout << structure_name << "," << enthalpy << "," << henry << ",nan,nan," << elapsed_time_ms*0.001 << std::endl;}
 }

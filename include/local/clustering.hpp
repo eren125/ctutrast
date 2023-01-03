@@ -169,7 +169,7 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
           }
         }
         if (count_ == channels.size()) {break;}
-        else if (count_ > channels.size()) {std::cout << "ERROR in unique channel determination" << std::endl;}
+        else if (count_ > channels.size()) {std::cout << "ERROR in unique channel determination" << std::endl; break;}
   }
   return unique_labels;
 }
