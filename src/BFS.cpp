@@ -36,8 +36,7 @@ int main(int argc, char* argv[]) {
   std::cout << channels.size() << " channels out of " << N << " connected clusters" << std::endl;
 
   // Vector of channel labels grouped by symmetry
-  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, std::min(0.0,energy_threshold));
-  print_unique_labels(channel_unique_labels);
+  vector < vector<uint8_t> > channel_unique_labels = sym_unique_labels(grid, channel_labels, channels, error, std::min(0.0,energy_threshold));  print_unique_labels(channel_unique_labels);
 
   // Loop over the different energy levels
   double energy_step = R*temperature;

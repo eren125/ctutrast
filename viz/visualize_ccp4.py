@@ -8,9 +8,9 @@ import os
 file_dir = os.path.dirname(__file__)
 # s = input("give the spacing of desired grid:\n")
 # t = input("give the energy thershold used in the grid calc:\n")
-forcefield = "Dreiding_uff"
+forcefield = "UFF"
 s, t = "0.12","20"
-structure = "VANRAH_clean_123"
+structure = "KUTDAG_clean_5"
 # structure = input("Structure name:\n")
 ads = "Xe"
 grid_path = "../grid/%s_%s_%s_%s_%s.ccp4"%(structure,forcefield,s,t,ads)

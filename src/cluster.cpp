@@ -82,21 +82,21 @@ int main(int argc, char* argv[]) {
     size_t N_current; size_t N_past=0;
     // calc weight here later (TODO)
     uint8_t* bassin_labels_current = new uint8_t[V]();
-    bool first=true;
     // TODO implement a dichotomy search
     for (size_t step=0; step<max_steps+1; step++){
       energy_threshold_temp += energy_step;
       N_current = 0;
       bool merged = false;
       bfsOfGraph(&bassin_labels_current, in_channel, grid, energy_threshold_temp, V, N_current);
-      if (first) {
+      if (N_current == 1){
+        // implement a way to calc channel dim and compare it to the initial one
         vector<std::string> channel_dimensions_temp=channel_dim_array<uint8_t>(bassin_labels_current, N_current, grid.nu, grid.nv, grid.nw);
-        if (!channel_dimensions_temp[0].empty()) {energy_barriers.push_back(std::make_pair(min_energy, energy_threshold_temp)); first = false;}
+        if (!channel_dimensions_temp[0].empty()) {break;}
       }
       N_past = N_current;
     }
     delete [] bassin_labels_current;
-
+    energy_barriers.push_back(std::make_pair(min_energy, energy_threshold_temp));
   }
 
   delete [] channel_labels;

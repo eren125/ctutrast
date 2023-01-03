@@ -137,7 +137,7 @@ vector<std::string> channel_dim_array(T* cc_labels, size_t N_label, int &nu, int
 }
 
 template <typename T = uint8_t >
-vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, vector<T> &channels, double threshold=0) {
+vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, vector<T> &channels, bool &error, double threshold=0) {
   vector < vector<T> > unique_labels;
   vector<gemmi::GridOp> grid_ops = grid.get_scaled_ops_except_id();
   vector<T> labels;
@@ -154,7 +154,7 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
           if (it == labels.end()) {
             vector<T> equiv_label;
             equiv_label.push_back(label);
-            labels.push_back(label);count_++;
+            labels.push_back(label); count_++;
             for (size_t k = 0; k < grid_ops.size(); ++k) {
               std::array<int,3> t = grid_ops[k].apply(u, v, w);
               size_t mate_idx = grid.index_s(t[0], t[1], t[2]);
@@ -162,14 +162,14 @@ vector < vector<T> > sym_unique_labels(gemmi::Grid<double> &grid, T* cc_labels, 
               it = find (equiv_label.begin(), equiv_label.end(), mate_label);
               if (it == equiv_label.end()){
                 equiv_label.push_back(mate_label);
-                labels.push_back(label);count_++;
+                labels.push_back(label); count_++;
               }
             }
             unique_labels.push_back(equiv_label);
           }
         }
         if (count_ == channels.size()) {break;}
-        else if (count_ > channels.size()) {std::cout << "ERROR in unique channel determination" << std::endl; break;}
+        else if (count_ > channels.size()) {error=true; break;}
   }
   return unique_labels;
 }
@@ -180,10 +180,10 @@ void print_unique_labels(vector < vector<T> > &unique_labels){
   int count_ = 0;
   for (vector<T> equiv_labels: unique_labels){
     for (T label: equiv_labels){
-      // std::cout << (size_t) label << " ";
+      std::cout << (size_t) label << " ";
     }
     count_++;
-    // std::cout << std::endl;
+    std::cout << std::endl;
   }
 }
 
