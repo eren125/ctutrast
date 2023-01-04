@@ -96,7 +96,6 @@ int main(int argc, char* argv[]) {
       N_past = N_current;
     }
     delete [] bassin_labels_current;
-
   }
 
   delete [] channel_labels;
@@ -108,7 +107,7 @@ int main(int argc, char* argv[]) {
   double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
   if (energy_barriers.size()!=0) {
     for (auto energy: energy_barriers){
-      // Structure name, Enthalpy (kJ/mol), Henry coeff (mol/kg/Pa), Minimum Energy in channel (kJ/mol), Barrier Energy (kJ/mol), Time (s)
+      // Structure name, Enthalpy (kJ/mol), Henry constant (mol/kg/Pa), Minimum Energy in channel (kJ/mol), Barrier Energy (kJ/mol), Time (s)
       std::cout << structure_name << "," << enthalpy << "," << henry << "," << energy.first << "," << energy.second << "," << elapsed_time_ms*0.001 << std::endl;
     }
   }
