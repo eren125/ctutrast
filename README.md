@@ -18,4 +18,3 @@ AEI,-22.2866,5.06784e-05,0.227736 <br>
 IFY,-26.1962,6.81103e-05,0.216043 <br>
 
 # Acknowledgement
-https://github.com/seung-lab/connected-components-3d
