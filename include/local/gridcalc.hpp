@@ -4,7 +4,7 @@
 #include <gemmi/grid.hpp>       // grid construction
 #include <gemmi/ccp4.hpp>       // map
 
-#define MAX_EXP 1e3 // exp(-1000) = 1.34*10^434, for argument above we skip calculation
+#define MAX_EXP 1e8 // exp(-1000) = 1.34*10^434, for argument above we skip calculation
 
 double energy_lj(double &epsilon, double &sigma_6, double &inv_distance_6, double &inv_cutoff_6, double &inv_distance_12, double &inv_cutoff_12, double const R) {
   return 4*R*epsilon*sigma_6*( sigma_6 * (inv_distance_12 - inv_cutoff_12) - inv_distance_6 + inv_cutoff_6 );
@@ -161,7 +161,7 @@ void make_energy_grid_ads(std::string &structure_file, std::string &forcefield_p
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         if (visited[idx]) {continue;}
-        else if (grid.data[idx] != grid.data[idx]) {visited[idx]=true; continue;} // grid point frequently overlaps with atoms which results in nan value (skip those)
+        else if (grid.data[idx] != grid.data[idx]) {grid.data[idx]=MAX_ENERGY; visited[idx]=true; continue;} // grid point frequently overlaps with atoms which results in nan value (skip those)
         else if (grid.data[idx] >= energy_threshold) {visited[idx]=true; continue;}
         gemmi::Fractional V_fract = grid.get_fractional(u,v,w);
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
@@ -284,6 +284,7 @@ void make_energy_grid(std::string &structure_file, std::string &forcefield_path,
     for (int v = 0; v != grid.nv; ++v)
       for (int u = 0; u != grid.nu; ++u, ++idx) {
         if (visited[idx]) {continue;}
+        else if (grid.data[idx] != grid.data[idx]) {grid.data[idx]=MAX_ENERGY; visited[idx]=true; continue;} // grid point frequently overlaps with atoms which results in nan value (skip those)
         else if (grid.data[idx] >= energy_threshold) {continue;}
         gemmi::Fractional V_fract = grid.get_fractional(u,v,w);
         move_rect_box(V_fract,a_x,b_x,c_x,b_y,c_y);
